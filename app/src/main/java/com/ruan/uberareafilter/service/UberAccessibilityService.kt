@@ -26,11 +26,13 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.ruan.uberareafilter.driver.AppCaptureRouter
 import com.ruan.uberareafilter.engine.AreaEvaluator
 import com.ruan.uberareafilter.engine.Decision
+import com.ruan.uberareafilter.engine.FuelCalculator
 import com.ruan.uberareafilter.engine.ParsedRideOffer
 import com.ruan.uberareafilter.model.FavoriteRideItem
 import com.ruan.uberareafilter.model.FilterConfig
 import com.ruan.uberareafilter.model.RideHistoryItem
 import com.ruan.uberareafilter.overlay.OverlayManager
+import com.ruan.uberareafilter.overlay.RideCardModel
 import com.ruan.uberareafilter.storage.ConfigRepository
 import com.ruan.uberareafilter.ui.FavoritesActivity
 import kotlinx.coroutines.CoroutineScope
@@ -79,6 +81,7 @@ class UberAccessibilityService : AccessibilityService() {
     private var lastHeartShownAt: Long = 0L
     private var lastFavoriteAlertCheckAt: Long = 0L
     private var lastUberEventAt: Long = 0L
+    private var lastUnmatchedDebugAt: Long = 0L
     private val sentFavoriteAlerts = mutableSetOf<String>()
 
     // Somente apps de MOTORISTA (evita monitorar com.ubercab passageiro, com.taxis99 passageiro, uberchip, digio.uber...)
@@ -267,7 +270,21 @@ class UberAccessibilityService : AccessibilityService() {
             config = config
         )
         bitmap.recycle()
-        if (ocrParsed == null) return
+        if (ocrParsed == null) {
+            if (config.debugMode && System.currentTimeMillis() - lastUnmatchedDebugAt > 4000L) {
+                val snippet = visionText.textBlocks.flatMap { it.lines }
+                    .map { it.text.trim() }
+                    .filter { it.isNotEmpty() }
+                val lower = snippet.joinToString(" | ").lowercase()
+                if (lower.contains("tenho interesse") || lower.contains("exclusivo") ||
+                    (lower.contains("r$") && (lower.contains("min") || lower.contains("aceitar")))
+                ) {
+                    lastUnmatchedDebugAt = System.currentTimeMillis()
+                    log("OCR [NAO-RECONHECIDO] ($currentForegroundPkg): ${snippet.take(10).joinToString(" | ")}")
+                }
+            }
+            return
+        }
 
         if (config.debugMode && ocrParsed.allTexts.isNotEmpty() && ocrParsed.isRideOffer) {
             val totalKmStr = ocrParsed.totalDistanceKm?.let { String.format(Locale.US, "%.1fkm", it) } ?: "?"
@@ -516,17 +533,20 @@ class UberAccessibilityService : AccessibilityService() {
         val appTag = "[${parsed.appSource}]"
         log("[$source] Decisao: ${result.decision} -> ${result.reason} | ${result.checklistText}")
 
-        val priceFmt = parsed.ridePrice?.let { String.format(Locale("pt", "BR"), "R$ %.2f", it) } ?: ""
-        val kmFmt = parsed.pricePerKm?.let { String.format(Locale("pt", "BR"), "R$ %.2f/km", it) } ?: ""
-        val hrFmt = parsed.hourlyRate?.let { String.format(Locale("pt", "BR"), "R$ %.0f/h", it) } ?: ""
-        val totKmFmt = parsed.totalDistanceKm?.let { String.format(Locale("pt", "BR"), "%.1f km", it) } ?: ""
-        val ratingFmt = parsed.passengerRating?.let { String.format(Locale("pt", "BR"), "★ %.2f", it) }
+        val br = Locale("pt", "BR")
+        val priceFmt = parsed.ridePrice?.let { String.format(br, "R$ %.2f", it) } ?: ""
+        val kmFmt = parsed.pricePerKm?.let { String.format(br, "R$ %.2f/km", it) } ?: ""
+        val hrFmt = parsed.hourlyRate?.let { String.format(br, "R$ %.0f/h", it) } ?: ""
+        val totKmFmt = parsed.totalDistanceKm?.let { String.format(br, "%.1f km", it) } ?: ""
+        val ratingFmt = parsed.passengerRating?.let { String.format(br, "★ %.2f", it) }
             ?: if (parsed.isNewPassenger) "★ Novo" else ""
         val stopsFmt = if (parsed.hasMultipleStops) "🛑 ${parsed.stopsCount} parada(s)" else ""
 
-        val metricsBadges = listOf(kmFmt, hrFmt, ratingFmt, totKmFmt, priceFmt, stopsFmt)
-            .filter { it.isNotEmpty() }
-            .joinToString(" • ")
+        val fuelEstimate = FuelCalculator.estimate(parsed, config)
+        val profitLabel = fuelEstimate?.let { est ->
+            listOfNotNull(est.profitText, est.netHourlyText).joinToString(" · ").ifEmpty { null }
+        }
+        val secondaryList = listOf(kmFmt, totKmFmt, ratingFmt, stopsFmt).filter { it.isNotEmpty() }
 
         if (!isSameOffer && (!parsed.pickupAddress.isNullOrBlank() || !parsed.dropoffAddress.isNullOrBlank())) {
             val timeShort = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
@@ -549,17 +569,21 @@ class UberAccessibilityService : AccessibilityService() {
 
         when (result.decision) {
             Decision.INSIDE_AREA -> {
-                val headline = if (config.autoAcceptInsideArea) {
-                    "✅ $appTag DENTRO DA ÁREA • ACEITANDO..."
-                } else {
-                    "✅ $appTag DENTRO DA ÁREA • VOCÊ DECIDE"
-                }
-                overlayManager.showRideStatus(
-                    decision = Decision.INSIDE_AREA,
-                    headline = headline,
-                    metricsLine = metricsBadges.ifEmpty { null },
-                    detailLine = checklist,
-                    autoHideMs = 6000L
+                overlayManager.showRideCard(
+                    RideCardModel(
+                        decision = Decision.INSIDE_AREA,
+                        appSource = parsed.appSource,
+                        title = "Dentro da área",
+                        statusLabel = if (config.autoAcceptInsideArea) "ACEITANDO" else "VOCÊ DECIDE",
+                        priceText = priceFmt.ifEmpty { null },
+                        hourlyText = hrFmt.ifEmpty { null },
+                        secondaryMetrics = secondaryList,
+                        fuelText = fuelEstimate?.costText,
+                        profitText = profitLabel,
+                        profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                        checklist = checklist,
+                        autoHideMs = 6000L
+                    )
                 )
 
                 if (config.autoAcceptInsideArea && now - lastActionAt > 1400L) {
@@ -573,38 +597,61 @@ class UberAccessibilityService : AccessibilityService() {
             }
 
             Decision.INTER_ZONE -> {
-                // Card Roxo: corrida entre duas Zonas Permitidas diferentes (respeitando KM Maximo).
-                // Nunca aceita nem recusa no automatico — destaca em roxo para o motorista decidir!
-                overlayManager.showRideStatus(
-                    decision = Decision.INTER_ZONE,
-                    headline = "🟣 $appTag CORRIDA ENTRE ZONAS • VOCÊ DECIDE",
-                    metricsLine = metricsBadges.ifEmpty { null },
-                    detailLine = checklist,
-                    autoHideMs = 7000L
+                overlayManager.showRideCard(
+                    RideCardModel(
+                        decision = Decision.INTER_ZONE,
+                        appSource = parsed.appSource,
+                        title = "Corrida entre zonas",
+                        statusLabel = "VOCÊ DECIDE",
+                        priceText = priceFmt.ifEmpty { null },
+                        hourlyText = hrFmt.ifEmpty { null },
+                        secondaryMetrics = secondaryList,
+                        fuelText = fuelEstimate?.costText,
+                        profitText = profitLabel,
+                        profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                        checklist = checklist,
+                        autoHideMs = 7000L
+                    )
                 )
             }
 
             Decision.RETURN_TO_AREA -> {
-                // Card Amarelo (Item 6): motorista fora da area definida, mas tocou corrida a <= 1,0 km!
-                // Nao cancela automatico — exibe card amarelo para o motorista pegar e se encaminhar para a area!
-                overlayManager.showRideStatus(
-                    decision = Decision.RETURN_TO_AREA,
-                    headline = "🟡 $appTag FORA DA ÁREA (EMB ≤ 1KM) • VOCÊ DECIDE",
-                    metricsLine = metricsBadges.ifEmpty { null },
-                    detailLine = checklist,
-                    autoHideMs = 7000L
+                overlayManager.showRideCard(
+                    RideCardModel(
+                        decision = Decision.RETURN_TO_AREA,
+                        appSource = parsed.appSource,
+                        title = "Fora da área (Emb ≤ 1 km)",
+                        statusLabel = "RETORNO",
+                        priceText = priceFmt.ifEmpty { null },
+                        hourlyText = hrFmt.ifEmpty { null },
+                        secondaryMetrics = secondaryList,
+                        fuelText = fuelEstimate?.costText,
+                        profitText = profitLabel,
+                        profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                        checklist = checklist,
+                        autoHideMs = 7000L
+                    )
                 )
             }
 
             Decision.OUTSIDE_AREA -> {
                 if (config.autoRejectEnabled) {
                     lastActionAt = now
-                    overlayManager.showRideStatus(
-                        decision = Decision.OUTSIDE_AREA,
-                        headline = "⚠️ $appTag FORA DOS CRITÉRIOS • RECUSANDO...",
-                        metricsLine = metricsBadges.ifEmpty { null },
-                        detailLine = checklist,
-                        autoHideMs = 4500L
+                    overlayManager.showRideCard(
+                        RideCardModel(
+                            decision = Decision.OUTSIDE_AREA,
+                            appSource = parsed.appSource,
+                            title = "Fora dos critérios",
+                            statusLabel = "RECUSANDO",
+                            priceText = priceFmt.ifEmpty { null },
+                            hourlyText = hrFmt.ifEmpty { null },
+                            secondaryMetrics = secondaryList,
+                            fuelText = fuelEstimate?.costText,
+                            profitText = profitLabel,
+                            profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                            checklist = checklist,
+                            autoHideMs = 4500L
+                        )
                     )
                     if (config.humanDelayEnabled) {
                         delay(Random.nextLong(240L, 420L))
@@ -613,11 +660,21 @@ class UberAccessibilityService : AccessibilityService() {
                     val pt = parsed.rejectTapPoint
                     log("Auto-recusa cirurgica $appTag disparada em (${pt?.first?.toInt()}x${pt?.second?.toInt()}, sucesso=$clicked)")
                 } else {
-                    overlayManager.showRideStatus(
-                        decision = Decision.OUTSIDE_AREA,
-                        headline = "⚠️ $appTag FORA DOS CRITÉRIOS (AUTO-RECUSA OFF)",
-                        metricsLine = metricsBadges.ifEmpty { null },
-                        detailLine = checklist
+                    overlayManager.showRideCard(
+                        RideCardModel(
+                            decision = Decision.OUTSIDE_AREA,
+                            appSource = parsed.appSource,
+                            title = "Fora dos critérios",
+                            statusLabel = "RECUSA OFF",
+                            priceText = priceFmt.ifEmpty { null },
+                            hourlyText = hrFmt.ifEmpty { null },
+                            secondaryMetrics = secondaryList,
+                            fuelText = fuelEstimate?.costText,
+                            profitText = profitLabel,
+                            profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                            checklist = checklist,
+                            autoHideMs = 4500L
+                        )
                     )
                 }
             }

@@ -1,5 +1,6 @@
 package com.ruan.uberareafilter.overlay
 
+import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
@@ -9,10 +10,16 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextUtils
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.LinearInterpolator
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.ruan.uberareafilter.engine.Decision
@@ -30,11 +37,25 @@ class OverlayManager(private val context: Context) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Card de notificacao no topo
+    // Card de notificacao profissional no topo
     private var bannerContainer: LinearLayout? = null
-    private var bannerTitleView: TextView? = null
-    private var bannerMetricsView: TextView? = null
-    private var bannerSubView: TextView? = null
+    private var cardAccentBar: View? = null
+    private var cardAppChip: TextView? = null
+    private var cardTitle: TextView? = null
+    private var cardStatusPill: TextView? = null
+    private var cardPriceRow: LinearLayout? = null
+    private var cardPrice: TextView? = null
+    private var cardHourly: TextView? = null
+    private var cardMetrics: TextView? = null
+    private var cardFuelRow: LinearLayout? = null
+    private var cardFuel: TextView? = null
+    private var cardProfit: TextView? = null
+    private var cardDivider: View? = null
+    private var cardChecks: TextView? = null
+    private var cardDetails: TextView? = null
+    private var cardBody: LinearLayout? = null
+    private var cardProgress: View? = null
+    private var cardProgressAnimator: ObjectAnimator? = null
     private val hideBannerRunnable = Runnable { hideBanner() }
 
     // Botao flutuante discreto (🟢/⏸️)
@@ -52,6 +73,9 @@ class OverlayManager(private val context: Context) {
     private var heartTextView: TextView? = null
     private val hideHeartRunnable = Runnable { hideHeartPrompt() }
 
+    /**
+     * Compatibilidade: avisos simples (ex: alerta de Favorito) usando o novo card profissional.
+     */
     fun showRideStatus(
         decision: Decision,
         headline: String,
@@ -59,12 +83,26 @@ class OverlayManager(private val context: Context) {
         detailLine: String,
         autoHideMs: Long = 5000L
     ) {
+        showRideCard(
+            RideCardModel(
+                decision = decision,
+                title = headline,
+                secondaryMetrics = listOfNotNull(metricsLine?.takeIf { it.isNotBlank() }),
+                checklist = detailLine,
+                autoHideMs = autoHideMs
+            )
+        )
+    }
+
+    fun showRideCard(model: RideCardModel) {
         if (!Settings.canDrawOverlays(context)) return
 
         mainHandler.post {
             mainHandler.removeCallbacks(hideBannerRunnable)
-            val container = bannerContainer ?: createModernBannerView().also {
+            var isNew = false
+            val container = bannerContainer ?: createProfessionalCardView().also {
                 bannerContainer = it
+                isNew = true
                 try {
                     windowManager.addView(it, createBannerLayoutParams())
                 } catch (_: Exception) {
@@ -74,77 +112,160 @@ class OverlayManager(private val context: Context) {
             }
 
             val cfg = runCatching { ConfigRepository(context).load() }.getOrNull()
-            val scale = cfg?.bannerScale ?: 1
-            val scaleFactor = when (scale) {
-                0 -> 0.85f // Compacto
-                2 -> 1.22f // Grande
-                else -> 1.0f // Normal
+            val sf = when (cfg?.bannerScale ?: 1) {
+                0 -> 0.86f // Compacto
+                2 -> 1.2f  // Grande
+                else -> 1.0f
             }
 
-            bannerTitleView?.textSize = 13f * scaleFactor
-            bannerMetricsView?.textSize = 16f * scaleFactor
-            bannerSubView?.textSize = 12.5f * scaleFactor
-            val padH = dp((16 * scaleFactor).toInt())
-            val padV = dp((10 * scaleFactor).toInt())
-            container.setPadding(padH, padV, padH, padV)
+            // ---- Paleta por decisao ----
+            val accent = accentColorFor(model.decision)
+            val bgBase = when (model.decision) {
+                Decision.INSIDE_AREA -> parseSafeColor(cfg?.colorInsideHex, "#F20A2E1D")
+                Decision.INTER_ZONE -> parseSafeColor(cfg?.colorInterZoneHex, "#F2271252")
+                Decision.RETURN_TO_AREA -> parseSafeColor(cfg?.colorYellowReturnHex, "#F23B2806")
+                Decision.OUTSIDE_AREA -> parseSafeColor(cfg?.colorOutsideHex, "#F2330A0A")
+                Decision.UNKNOWN_KEEP -> Color.parseColor("#F21E293B")
+            }
+            (container.background as? GradientDrawable)?.apply {
+                orientation = GradientDrawable.Orientation.TL_BR
+                colors = intArrayOf(bgBase, blend(bgBase, Color.BLACK, 0.38f))
+                setStroke(dp(1), withAlpha(accent, 0x88))
+            }
+            cardAccentBar?.setBackgroundColor(accent)
+            cardProgress?.setBackgroundColor(withAlpha(accent, 0xCC))
 
-            val bg = container.background as? GradientDrawable
-            when (decision) {
-                Decision.INSIDE_AREA -> {
-                    val customBg = parseSafeColor(cfg?.colorInsideHex, "#F20A2E1D")
-                    bg?.setColor(customBg)
-                    bg?.setStroke(dp(2), Color.parseColor("#00E676"))
-                    bannerTitleView?.setTextColor(Color.parseColor("#69F0AE"))
+            // ---- Cabecalho: chip do app + titulo + pilula de status ----
+            val app = model.appSource?.uppercase()
+            cardAppChip?.apply {
+                if (app.isNullOrBlank()) {
+                    visibility = View.GONE
+                } else {
+                    visibility = View.VISIBLE
+                    text = if (app == "UBER") "Uber" else app
+                    textSize = 10.5f * sf
+                    val chipBg = background as? GradientDrawable
+                    if (app == "UBER") {
+                        chipBg?.setColor(Color.BLACK)
+                        chipBg?.setStroke(dp(1), Color.parseColor("#E5E7EB"))
+                        setTextColor(Color.WHITE)
+                    } else {
+                        chipBg?.setColor(Color.parseColor("#FFD200"))
+                        chipBg?.setStroke(0, Color.TRANSPARENT)
+                        setTextColor(Color.parseColor("#111111"))
+                    }
                 }
-
-                Decision.INTER_ZONE -> {
-                    val customBg = parseSafeColor(cfg?.colorInterZoneHex, "#F2271252")
-                    bg?.setColor(customBg)
-                    bg?.setStroke(dp(2), Color.parseColor("#B388FF"))
-                    bannerTitleView?.setTextColor(Color.parseColor("#E040FB"))
-                }
-
-                Decision.RETURN_TO_AREA -> {
-                    val customBg = parseSafeColor(cfg?.colorYellowReturnHex, "#F23B2806")
-                    bg?.setColor(customBg)
-                    bg?.setStroke(dp(2), Color.parseColor("#FFD600"))
-                    bannerTitleView?.setTextColor(Color.parseColor("#FFEA00"))
-                }
-
-                Decision.OUTSIDE_AREA -> {
-                    val customBg = parseSafeColor(cfg?.colorOutsideHex, "#F2330A0A")
-                    bg?.setColor(customBg)
-                    bg?.setStroke(dp(2), Color.parseColor("#FF5252"))
-                    bannerTitleView?.setTextColor(Color.parseColor("#FF8A80"))
-                }
-
-                Decision.UNKNOWN_KEEP -> {
-                    bg?.setColor(Color.parseColor("#F21E293B"))
-                    bg?.setStroke(dp(2), Color.parseColor("#FFD54F"))
-                    bannerTitleView?.setTextColor(Color.parseColor("#FFE082"))
+            }
+            cardTitle?.apply {
+                text = model.title
+                textSize = 13.5f * sf
+            }
+            cardStatusPill?.apply {
+                if (model.statusLabel.isBlank()) {
+                    visibility = View.GONE
+                } else {
+                    visibility = View.VISIBLE
+                    text = "●  ${model.statusLabel.uppercase()}"
+                    textSize = 10f * sf
+                    setTextColor(lighten(accent, 0.35f))
+                    (background as? GradientDrawable)?.apply {
+                        setColor(withAlpha(accent, 0x33))
+                        setStroke(dp(1), withAlpha(accent, 0x99))
+                    }
                 }
             }
 
-            bannerTitleView?.text = headline
-            if (!metricsLine.isNullOrBlank()) {
-                bannerMetricsView?.visibility = View.VISIBLE
-                bannerMetricsView?.text = metricsLine
-            } else {
-                bannerMetricsView?.visibility = View.GONE
+            // ---- Valor principal + R$/h em destaque ----
+            val hasPrice = !model.priceText.isNullOrBlank() || !model.hourlyText.isNullOrBlank()
+            cardPriceRow?.visibility = if (hasPrice) View.VISIBLE else View.GONE
+            cardPrice?.apply {
+                text = model.priceText.orEmpty()
+                textSize = 26f * sf
             }
-            bannerSubView?.text = detailLine
+            cardHourly?.apply {
+                text = model.hourlyText.orEmpty()
+                textSize = 19f * sf
+                setTextColor(lighten(accent, 0.25f))
+            }
 
-            mainHandler.postDelayed(hideBannerRunnable, autoHideMs)
+            // ---- Metricas secundarias ----
+            cardMetrics?.apply {
+                if (model.secondaryMetrics.isEmpty()) {
+                    visibility = View.GONE
+                } else {
+                    visibility = View.VISIBLE
+                    text = model.secondaryMetrics.joinToString("   ·   ")
+                    textSize = 12.5f * sf
+                }
+            }
+
+            // ---- Combustivel + Lucro ----
+            val hasFuel = !model.fuelText.isNullOrBlank() || !model.profitText.isNullOrBlank()
+            cardFuelRow?.visibility = if (hasFuel) View.VISIBLE else View.GONE
+            cardFuel?.apply {
+                text = model.fuelText?.let { "⛽  $it" }.orEmpty()
+                textSize = 12.5f * sf
+            }
+            cardProfit?.apply {
+                text = model.profitText?.let { "💰  $it" }.orEmpty()
+                textSize = 12.5f * sf
+                setTextColor(Color.parseColor(if (model.profitPositive) "#86EFAC" else "#FCA5A5"))
+            }
+
+            // ---- Checklist (✔ / ✘) ----
+            val (chips, details) = splitChecklist(model.checklist)
+            cardDivider?.visibility = if (chips.isNotEmpty() || details.isNotEmpty()) View.VISIBLE else View.GONE
+            cardChecks?.apply {
+                if (chips.isEmpty()) {
+                    visibility = View.GONE
+                } else {
+                    visibility = View.VISIBLE
+                    text = buildChecksSpannable(chips, "     ")
+                    textSize = 12.5f * sf
+                }
+            }
+            cardDetails?.apply {
+                if (details.isEmpty()) {
+                    visibility = View.GONE
+                } else {
+                    visibility = View.VISIBLE
+                    text = buildChecksSpannable(details, "\n")
+                    textSize = 12f * sf
+                }
+            }
+
+            val padH = dp((14 * sf).toInt())
+            val padV = dp((11 * sf).toInt())
+            cardBody?.setPadding(padH, padV, padH, padV)
+
+            // ---- Animacao de entrada + barra de tempo restante ----
+            if (isNew) {
+                container.alpha = 0f
+                container.translationY = -dp(14).toFloat()
+                container.animate().alpha(1f).translationY(0f).setDuration(190L).start()
+            }
+            cardProgressAnimator?.cancel()
+            cardProgress?.let { bar ->
+                bar.pivotX = 0f
+                bar.scaleX = 1f
+                cardProgressAnimator = ObjectAnimator.ofFloat(bar, View.SCALE_X, 1f, 0f).apply {
+                    duration = model.autoHideMs
+                    interpolator = LinearInterpolator()
+                    start()
+                }
+            }
+
+            mainHandler.postDelayed(hideBannerRunnable, model.autoHideMs)
         }
     }
 
     fun showStatus(decision: Decision, message: String, autoHideMs: Long = 4500L) {
         val headline = when (decision) {
-            Decision.INSIDE_AREA -> "✅ DENTRO DA ÁREA • VOCÊ DECIDE"
-            Decision.INTER_ZONE -> "🟣 CORRIDA ENTRE ZONAS • VOCÊ DECIDE"
-            Decision.RETURN_TO_AREA -> "🟡 FORA DA ÁREA (EMB ≤ 1KM) • VOCÊ DECIDE"
-            Decision.OUTSIDE_AREA -> "❌ FORA DOS CRITÉRIOS"
-            Decision.UNKNOWN_KEEP -> "ℹ️ AVISO DO FILTRO"
+            Decision.INSIDE_AREA -> "Dentro da área"
+            Decision.INTER_ZONE -> "Corrida entre zonas"
+            Decision.RETURN_TO_AREA -> "Fora da área • Emb ≤ 1 km"
+            Decision.OUTSIDE_AREA -> "Fora dos critérios"
+            Decision.UNKNOWN_KEEP -> "Aviso do filtro"
         }
         showRideStatus(decision, headline, null, message, autoHideMs)
     }
@@ -152,16 +273,111 @@ class OverlayManager(private val context: Context) {
     fun hideBanner() {
         mainHandler.post {
             mainHandler.removeCallbacks(hideBannerRunnable)
+            cardProgressAnimator?.cancel()
+            cardProgressAnimator = null
             bannerContainer?.let { view ->
                 try {
                     windowManager.removeView(view)
                 } catch (_: Exception) {}
             }
             bannerContainer = null
-            bannerTitleView = null
-            bannerMetricsView = null
-            bannerSubView = null
+            cardAccentBar = null
+            cardAppChip = null
+            cardTitle = null
+            cardStatusPill = null
+            cardPriceRow = null
+            cardPrice = null
+            cardHourly = null
+            cardMetrics = null
+            cardFuelRow = null
+            cardFuel = null
+            cardProfit = null
+            cardDivider = null
+            cardChecks = null
+            cardDetails = null
+            cardBody = null
+            cardProgress = null
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Helpers do card profissional
+    // ------------------------------------------------------------------
+
+    private fun accentColorFor(decision: Decision): Int = Color.parseColor(
+        when (decision) {
+            Decision.INSIDE_AREA -> "#22C55E"
+            Decision.INTER_ZONE -> "#A855F7"
+            Decision.RETURN_TO_AREA -> "#EAB308"
+            Decision.OUTSIDE_AREA -> "#EF4444"
+            Decision.UNKNOWN_KEEP -> "#94A3B8"
+        }
+    )
+
+    /**
+     * Separa o checklist em "chips" curtos (✔ Nota 4,95 • ✘ R$36/h) e linhas de detalhe (✔ Embarque: Rua X).
+     */
+    private fun splitChecklist(raw: String): Pair<List<String>, List<String>> {
+        val chips = mutableListOf<String>()
+        val details = mutableListOf<String>()
+        raw.split("\n").map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
+            val parts = line.split("  •  ").map { it.trim() }.filter { it.isNotEmpty() }
+            if (parts.size > 1) {
+                chips.addAll(parts)
+            } else if (line.length <= 24 && (line.startsWith("✔") || line.startsWith("✘"))) {
+                chips.add(line)
+            } else {
+                details.add(line)
+            }
+        }
+        return chips to details
+    }
+
+    private fun buildChecksSpannable(items: List<String>, separator: String): CharSequence {
+        val ok = Color.parseColor("#4ADE80")
+        val bad = Color.parseColor("#F87171")
+        val warn = Color.parseColor("#FACC15")
+        val sb = SpannableStringBuilder()
+        items.forEachIndexed { idx, item ->
+            if (idx > 0) sb.append(separator)
+            val start = sb.length
+            sb.append(item)
+            val end = sb.length
+            val iconColor = when {
+                item.startsWith("✔") || item.startsWith("✅") -> ok
+                item.startsWith("✘") || item.startsWith("❌") || item.startsWith("⚠") -> bad
+                item.startsWith("🟡") -> warn
+                else -> null
+            }
+            if (iconColor != null) {
+                // Icone colorido e em negrito
+                val iconEnd = (start + 1).coerceAtMost(end)
+                sb.setSpan(ForegroundColorSpan(iconColor), start, iconEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(StyleSpan(Typeface.BOLD), start, iconEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                // Itens reprovados ficam com texto levemente avermelhado
+                if (iconColor == bad) {
+                    sb.setSpan(ForegroundColorSpan(Color.parseColor("#FECACA")), iconEnd, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+        }
+        return sb
+    }
+
+    private fun withAlpha(color: Int, alpha: Int): Int =
+        Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+
+    private fun blend(c1: Int, c2: Int, ratio: Float): Int {
+        val inv = 1f - ratio
+        return Color.argb(
+            Color.alpha(c1),
+            (Color.red(c1) * inv + Color.red(c2) * ratio).toInt(),
+            (Color.green(c1) * inv + Color.green(c2) * ratio).toInt(),
+            (Color.blue(c1) * inv + Color.blue(c2) * ratio).toInt()
+        )
+    }
+
+    private fun lighten(color: Int, ratio: Float): Int = blend(color, Color.WHITE, ratio).let {
+        Color.argb(255, Color.red(it), Color.green(it), Color.blue(it))
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -264,45 +480,185 @@ class OverlayManager(private val context: Context) {
         hideHeartPrompt()
     }
 
-    private fun createModernBannerView(): LinearLayout {
+    private fun createProfessionalCardView(): LinearLayout {
         val bg = GradientDrawable().apply {
-            cornerRadius = dp(16).toFloat()
+            cornerRadius = dp(18).toFloat()
             setColor(Color.parseColor("#EE1E293B"))
-            setStroke(dp(2), Color.parseColor("#00E676"))
+            setStroke(dp(1), Color.parseColor("#8822C55E"))
         }
 
-        val title = TextView(context).apply {
-            textSize = 13f
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = bg
+            elevation = dp(14).toFloat()
+            clipToOutline = true
+        }
+
+        val middleRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val accentBar = View(context).apply {
+            setBackgroundColor(Color.parseColor("#22C55E"))
+            layoutParams = LinearLayout.LayoutParams(dp(5), LinearLayout.LayoutParams.MATCH_PARENT)
+        }
+        cardAccentBar = accentBar
+
+        val body = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        cardBody = body
+
+        // Linha 1: Chip do app + Titulo + Pilula de Status
+        val headerRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val appChip = TextView(context).apply {
+            textSize = 10.5f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#69F0AE"))
+            setPadding(dp(7), dp(2), dp(7), dp(2))
+            background = GradientDrawable().apply { cornerRadius = dp(6).toFloat() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(7) }
         }
-
-        val metrics = TextView(context).apply {
-            textSize = 16f
+        val titleView = TextView(context).apply {
+            textSize = 13.5f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(0, dp(2), 0, dp(2))
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
+        val statusPill = TextView(context).apply {
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            background = GradientDrawable().apply { cornerRadius = dp(99).toFloat() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(6) }
+        }
+        cardAppChip = appChip
+        cardTitle = titleView
+        cardStatusPill = statusPill
+        headerRow.addView(appChip)
+        headerRow.addView(titleView)
+        headerRow.addView(statusPill)
 
-        val sub = TextView(context).apply {
+        // Linha 2: Valor principal + R$/h
+        val priceRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+            setPadding(0, dp(4), 0, dp(1))
+        }
+        val priceView = TextView(context).apply {
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val hourlyView = TextView(context).apply {
+            textSize = 19f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.END
+        }
+        cardPriceRow = priceRow
+        cardPrice = priceView
+        cardHourly = hourlyView
+        priceRow.addView(priceView)
+        priceRow.addView(hourlyView)
+
+        // Linha 3: Metricas secundarias
+        val metricsView = TextView(context).apply {
             textSize = 12.5f
+            setTextColor(Color.parseColor("#CBD5E1"))
+            setPadding(0, dp(2), 0, dp(4))
+        }
+        cardMetrics = metricsView
+
+        // Linha 4: Combustivel + Lucro liquido
+        val fuelRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(9), dp(5), dp(9), dp(5))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#2A000000"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(2); bottomMargin = dp(4) }
+        }
+        val fuelView = TextView(context).apply {
+            textSize = 12.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#FDE68A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val profitView = TextView(context).apply {
+            textSize = 12.5f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.END
+        }
+        cardFuelRow = fuelRow
+        cardFuel = fuelView
+        cardProfit = profitView
+        fuelRow.addView(fuelView)
+        fuelRow.addView(profitView)
+
+        // Divisor + Checklist
+        val divider = View(context).apply {
+            setBackgroundColor(Color.parseColor("#26FFFFFF"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(1)
+            ).apply { topMargin = dp(4); bottomMargin = dp(6) }
+        }
+        val checksView = TextView(context).apply {
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#E2E8F0"))
+            setPadding(0, 0, 0, dp(3))
+        }
+        val detailsView = TextView(context).apply {
+            textSize = 12f
             setLineSpacing(dp(2).toFloat(), 1.05f)
             setTextColor(Color.parseColor("#F1F5F9"))
         }
+        cardDivider = divider
+        cardChecks = checksView
+        cardDetails = detailsView
 
-        bannerTitleView = title
-        bannerMetricsView = metrics
-        bannerSubView = sub
+        body.addView(headerRow)
+        body.addView(priceRow)
+        body.addView(metricsView)
+        body.addView(fuelRow)
+        body.addView(divider)
+        body.addView(checksView)
+        body.addView(detailsView)
 
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(10))
-            background = bg
-            elevation = dp(10).toFloat()
-            addView(title)
-            addView(metrics)
-            addView(sub)
+        middleRow.addView(accentBar)
+        middleRow.addView(body)
+
+        val progress = View(context).apply {
+            setBackgroundColor(Color.parseColor("#CC22C55E"))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(3))
         }
+        cardProgress = progress
+
+        root.addView(middleRow)
+        root.addView(progress)
+        return root
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -416,8 +772,9 @@ class OverlayManager(private val context: Context) {
     }
 
     private fun createBannerLayoutParams(): WindowManager.LayoutParams {
+        val maxCardWidth = (context.resources.displayMetrics.widthPixels * 0.94f).toInt()
         return WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            maxCardWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -425,7 +782,7 @@ class OverlayManager(private val context: Context) {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(78)
+            y = dp(72)
         }
     }
 

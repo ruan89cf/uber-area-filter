@@ -124,20 +124,22 @@ class UberCaptureModule : DriverCaptureModule {
         "/km •"
     )
 
-    // Ex: "7 min • 3.8 km", "6 minutos • 3.3 km", "34 minutos • 34.6 km", "26 minutos • 10.2 km"
+    // Aceita ambos os formatos da Uber:
+    //  - "7 min • 3.8 km" / "6 minutos • 3.3 km" / "34 minutos • 34.6 km"
+    //  - "12 min (7.1 km)" / "9 minutos (6.1 km)" / "21 minutos (18.3 km)"
     private val uberLegHeaderRegex = Regex(
-        """\b(\d+)\s*min(?:utos?)?\s*[•·.*\-]?\s*(\d+(?:[.,]\d+)?)\s*(km|m)\b""",
+        """\b(\d+)\s*min(?:utos?)?\s*(?:[•·.*\-]|\()\s*(\d+(?:[.,]\d+)?)\s*(km|m)\b\)?""",
         RegexOption.IGNORE_CASE
     )
 
-    // Ex: "4,90 (600)", "★ 4,94 (211)", "4,96 (58)"
+    // Ex: "4,90 (600)", "★ 4,94 (211)", "4,96 (58)", "★ 4,91 (380)"
     private val uberRatingWithCountRegex = Regex("""\b([345][.,]\d{2})\s*\(\s*\d+\s*\)""")
     private val genericRatingRegex = Regex("""\b([345][.,]\d{2})\b""")
 
-    // Ex: "R$ 7,97", "R$ 38,17", "R$ 15,08", "R$ 14,09"
-    private val currencyRegex = Regex("""(r\$|rs|\$)\s*(\d+([.,]\d{1,2})?)""", RegexOption.IGNORE_CASE)
+    // Ex: "R$ 7,97", "R$ 38,17", "R$ 25", "R$ 11,06"
+    private val currencyRegex = Regex("""(r\$|rs|\$)\s*(\d+(?:[.,]\d{1,2})?)""", RegexOption.IGNORE_CASE)
 
-    // Ex: "1 parada", "2 paradas", " multiplas paradas"
+    // Ex: "1 parada", "2 paradas", "multiplas paradas"
     private val uberStopRegex = Regex("""\b(\d+)\s*paradas?\b|\bparada\b""", RegexOption.IGNORE_CASE)
 
     private val uberAcceptHints = listOf(
@@ -157,22 +159,30 @@ class UberCaptureModule : DriverCaptureModule {
         val sortedLines = visionText.textBlocks
             .flatMap { it.lines }
             .sortedWith(compareBy({ it.boundingBox?.top ?: 0 }, { it.boundingBox?.left ?: 0 }))
+            .map { it.text to it.boundingBox }
+        return parseFromOrderedLines(sortedLines, screenWidth, screenHeight)
+    }
 
+    internal fun parseFromOrderedLines(
+        sortedLines: List<Pair<String, Rect?>>,
+        screenWidth: Int,
+        screenHeight: Int
+    ): ParsedRideOffer? {
         val cardLines = mutableListOf<String>()
         var hasAcceptOrInterestBtn = false
         var acceptCenter: Pair<Float, Float>? = null
         var headerBadgeBox: Rect? = null
         var priceBox: Rect? = null
         var hasUberSpecificMarker = false
+        var hasLegHeader = false
 
-        for (lineObj in sortedLines) {
-            val raw = lineObj.text.trim()
+        for ((rawText, box) in sortedLines) {
+            val raw = rawText.trim()
             if (raw.isEmpty()) continue
             val norm = TextNormalizer.normalize(raw)
 
             if (raw.contains("✔") ||
                 raw.contains("✘") ||
-                norm.contains("/km") ||
                 ownOverlayMarkers.any { norm.contains(it) } ||
                 norm == "on" ||
                 norm == "pausa"
@@ -180,9 +190,12 @@ class UberCaptureModule : DriverCaptureModule {
                 continue
             }
 
-            val box = lineObj.boundingBox
-            // Ignora os 33% superiores da tela (onde fica a caixa preta de navegacao GPS da Uber "120 m Avenida Actura"
-            // e o nosso proprio card de notificacao no topo)
+            // Ignora linha de banner do nosso proprio app ("R$ 1,45/km • R$ 42/h"), mas MANTEM "Est. de R$0,84/km" da Uber!
+            if (norm.contains("/km •") || (norm.contains("/km") && !norm.contains("est.") && !norm.startsWith("est"))) {
+                continue
+            }
+
+            // Ignora os 33% superiores da tela (barra preta de navegacao GPS da Uber e banner de notificacao)
             if (box != null && box.top < screenHeight * 0.33f) {
                 continue
             }
@@ -197,27 +210,40 @@ class UberCaptureModule : DriverCaptureModule {
             // Detecta a linha do cabecalho interno do card da Uber ("Moto", "Exclusivo", "UberX", "Flash")
             if (headerBadgeBox == null &&
                 box != null &&
-                box.top in (screenHeight * 0.36f).toInt()..(screenHeight * 0.62f).toInt() &&
-                (norm == "moto" || norm == "exclusivo" || norm.contains("moto exclusivo") || norm == "uberx" || norm == "flash")
+                box.top in (screenHeight * 0.35f).toInt()..(screenHeight * 0.65f).toInt() &&
+                (norm == "moto" || norm == "exclusivo" || norm.contains("moto exclusivo") ||
+                    norm == "uberx" || norm == "flash" || norm == "comfort")
             ) {
                 headerBadgeBox = box
+            }
+
+            if (uberLegHeaderRegex.containsMatchIn(raw)) {
+                hasLegHeader = true
+                hasUberSpecificMarker = true
             }
 
             if (norm == "exclusivo" ||
                 norm == "verificado" ||
                 norm == "tenho interesse" ||
-                uberRatingWithCountRegex.containsMatchIn(raw) ||
-                uberLegHeaderRegex.containsMatchIn(raw)
+                norm.contains("est. de r") ||
+                norm.contains("incluido") ||
+                uberRatingWithCountRegex.containsMatchIn(raw)
             ) {
                 hasUberSpecificMarker = true
             }
 
-            if (priceBox == null && box != null && currencyRegex.containsMatchIn(raw)) {
+            if (priceBox == null &&
+                box != null &&
+                !norm.contains("/km") &&
+                !norm.contains("incluido") &&
+                !norm.startsWith("+") &&
+                currencyRegex.containsMatchIn(raw)
+            ) {
                 priceBox = box
             }
 
             if (uberAcceptHints.any { norm == it || norm.startsWith("aceitar") || norm.contains("tenho interesse") }) {
-                if (box == null || box.top > screenHeight * 0.72f) {
+                if (box == null || box.top > screenHeight * 0.60f) {
                     hasAcceptOrInterestBtn = true
                     if (box != null && acceptCenter == null) {
                         acceptCenter = box.exactCenterX() to box.exactCenterY()
@@ -226,7 +252,8 @@ class UberCaptureModule : DriverCaptureModule {
             }
         }
 
-        if (!hasAcceptOrInterestBtn || !hasUberSpecificMarker) {
+        // Em todos os cards da Uber existem trechos "min (km)" ou "min • km" + botao Aceitar/Tenho interesse
+        if ((!hasAcceptOrInterestBtn && !hasLegHeader) || !hasUberSpecificMarker) {
             return null
         }
 
@@ -234,8 +261,8 @@ class UberCaptureModule : DriverCaptureModule {
         val ridePrice = extractUberPrice(cardLines)
         val rating = extractUberRating(cardLines)
 
-        // Confirma que e um card real de corrida da Uber (tem preco + pelo menos 1 trecho de rota)
-        if (ridePrice == null && legsResult.pickup == null) {
+        // Confirma que e um card real de corrida da Uber (tem preco OU trechos + marcador Uber)
+        if (ridePrice == null && legsResult.pickup == null && !hasLegHeader) {
             return null
         }
 
@@ -330,6 +357,10 @@ class UberCaptureModule : DriverCaptureModule {
 
     private fun extractUberPrice(lines: List<String>): Double? {
         for (line in lines) {
+            val norm = TextNormalizer.normalize(line)
+            if (norm.contains("/km") || norm.contains("incluido") || norm.startsWith("est") || norm.startsWith("+")) {
+                continue
+            }
             val match = currencyRegex.find(line) ?: continue
             val value = match.groupValues[2].replace(",", ".").toDoubleOrNull()
             if (value != null && value >= 3.0) {

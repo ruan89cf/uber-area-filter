@@ -51,10 +51,38 @@ data class FilterConfig(
     val colorInterZoneHex: String = "#271252",
     val colorYellowReturnHex: String = "#3B2806",
 
+    // Custo de Combustivel por corrida (exibido no card: "⛽ R$ 1,20 de gasolina" + Lucro liquido)
+    val fuelCostEnabled: Boolean = true,
+    val fuelType: String = FUEL_GASOLINA,
+    val fuelPricePerUnit: Double = 6.29,
+    val kmPerUnit: Double = 35.0,
+
     val rejectButtonHints: List<String> = DEFAULT_REJECT_HINTS,
     val debugMode: Boolean = true
 ) {
     companion object {
+        const val FUEL_GASOLINA = "Gasolina"
+        const val FUEL_ETANOL = "Etanol"
+        const val FUEL_DIESEL = "Diesel"
+        const val FUEL_GNV = "GNV"
+        const val FUEL_ELETRICO = "Elétrico"
+        val FUEL_TYPES = listOf(FUEL_GASOLINA, FUEL_ETANOL, FUEL_DIESEL, FUEL_GNV, FUEL_ELETRICO)
+
+        /** Unidade de abastecimento (litro, m³ ou kWh) */
+        fun fuelUnit(type: String): String = when (type) {
+            FUEL_GNV -> "m³"
+            FUEL_ELETRICO -> "kWh"
+            else -> "L"
+        }
+
+        /** Texto curto usado no card: "de gasolina", "de etanol", "de GNV", "de energia" */
+        fun fuelNoun(type: String): String = when (type) {
+            FUEL_ETANOL -> "etanol"
+            FUEL_DIESEL -> "diesel"
+            FUEL_GNV -> "GNV"
+            FUEL_ELETRICO -> "energia"
+            else -> "gasolina"
+        }
         val DEFAULT_REJECT_HINTS = listOf(
             "recusar",
             "fechar",

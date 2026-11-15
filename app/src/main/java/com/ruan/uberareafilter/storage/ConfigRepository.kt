@@ -136,6 +136,10 @@ class ConfigRepository(private val appContext: Context) {
             colorOutsideHex = prefs.getString(KEY_COLOR_OUTSIDE, "#330A0A") ?: "#330A0A",
             colorInterZoneHex = prefs.getString(KEY_COLOR_INTER_ZONE, "#271252") ?: "#271252",
             colorYellowReturnHex = prefs.getString(KEY_COLOR_YELLOW_RETURN, "#3B2806") ?: "#3B2806",
+            fuelCostEnabled = prefs.getBoolean(KEY_FUEL_ENABLED, true),
+            fuelType = prefs.getString(KEY_FUEL_TYPE, FilterConfig.FUEL_GASOLINA) ?: FilterConfig.FUEL_GASOLINA,
+            fuelPricePerUnit = getDouble(KEY_FUEL_PRICE, 6.29),
+            kmPerUnit = getDouble(KEY_KM_PER_UNIT, 35.0),
             rejectButtonHints = hints,
             debugMode = prefs.getBoolean(KEY_DEBUG, true)
         )
@@ -185,6 +189,10 @@ class ConfigRepository(private val appContext: Context) {
             .putString(KEY_COLOR_OUTSIDE, config.colorOutsideHex)
             .putString(KEY_COLOR_INTER_ZONE, config.colorInterZoneHex)
             .putString(KEY_COLOR_YELLOW_RETURN, config.colorYellowReturnHex)
+            .putBoolean(KEY_FUEL_ENABLED, config.fuelCostEnabled)
+            .putString(KEY_FUEL_TYPE, config.fuelType)
+            .putLong(KEY_FUEL_PRICE, java.lang.Double.doubleToRawLongBits(config.fuelPricePerUnit))
+            .putLong(KEY_KM_PER_UNIT, java.lang.Double.doubleToRawLongBits(config.kmPerUnit))
             .putString(KEY_REJECT_HINTS, config.rejectButtonHints.joinToString(","))
             .putBoolean(KEY_DEBUG, config.debugMode)
             .apply()
@@ -494,6 +502,10 @@ class ConfigRepository(private val appContext: Context) {
         private const val KEY_COLOR_OUTSIDE = "color_outside_hex"
         private const val KEY_COLOR_INTER_ZONE = "color_inter_zone_hex"
         private const val KEY_COLOR_YELLOW_RETURN = "color_yellow_return_hex"
+        private const val KEY_FUEL_ENABLED = "fuel_cost_enabled"
+        private const val KEY_FUEL_TYPE = "fuel_type"
+        private const val KEY_FUEL_PRICE = "fuel_price_per_unit"
+        private const val KEY_KM_PER_UNIT = "km_per_unit"
         private const val KEY_REJECT_HINTS = "reject_hints"
         private const val KEY_DEBUG = "debug_mode"
         private const val KEY_HISTORY = "ride_history_json"

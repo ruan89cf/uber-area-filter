@@ -26,7 +26,9 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.lifecycleScope
 import com.ruan.uberareafilter.databinding.ActivityMainBinding
 import com.ruan.uberareafilter.engine.AreaEvaluator
+import com.ruan.uberareafilter.engine.FuelCalculator
 import com.ruan.uberareafilter.overlay.OverlayManager
+import com.ruan.uberareafilter.overlay.RideCardModel
 import com.ruan.uberareafilter.model.FavoriteRideItem
 import com.ruan.uberareafilter.model.FilterConfig
 import com.ruan.uberareafilter.model.MapZone
@@ -50,6 +52,7 @@ class MainActivity : AppCompatActivity() {
 
     private var currentPolygon: List<Pair<Double, Double>> = emptyList()
     private var currentMapZones: List<MapZone> = emptyList()
+    private var currentFuelType: String = FilterConfig.FUEL_GASOLINA
 
     private val mapLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -141,6 +144,12 @@ class MainActivity : AppCompatActivity() {
         binding.switchFilterHourly.isChecked = config.filterByHourlyRateEnabled
         binding.edtMinHourly.setText(config.minHourlyRate.toString())
 
+        currentFuelType = config.fuelType
+        binding.switchFuelEnabled.isChecked = config.fuelCostEnabled
+        binding.edtFuelPrice.setText(String.format(Locale.US, "%.2f", config.fuelPricePerUnit))
+        binding.edtKmPerUnit.setText(String.format(Locale.US, "%.1f", config.kmPerUnit))
+        updateFuelUiLabels(config)
+
         binding.switchDebug.isChecked = config.debugMode
 
         binding.switchModule99.isChecked = config.nineNineModuleEnabled
@@ -230,6 +239,7 @@ class MainActivity : AppCompatActivity() {
             binding.switchFilterRating,
             binding.switchRejectNewPassenger,
             binding.switchFilterHourly,
+            binding.switchFuelEnabled,
             binding.switchDebug
         )
         allSwitches.forEach { sw ->
@@ -239,8 +249,26 @@ class MainActivity : AppCompatActivity() {
                         if (!validateInterZoneDistanceOrWarn()) return@setOnCheckedChangeListener
                     }
                     saveConfigFromUi(silent = true)
+                    if (sw == binding.switchFuelEnabled) {
+                        updateFuelUiLabels(repository.load())
+                    }
                 }
             }
+        }
+
+        binding.btnFuelType.setOnClickListener {
+            val types = FilterConfig.FUEL_TYPES.toTypedArray()
+            val curIdx = types.indexOf(currentFuelType).coerceAtLeast(0)
+            AlertDialog.Builder(this)
+                .setTitle("⛽ Tipo de Combustível")
+                .setSingleChoiceItems(types, curIdx) { dialog, which ->
+                    currentFuelType = types[which]
+                    saveConfigFromUi(silent = true)
+                    updateFuelUiLabels(repository.load())
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
         }
 
         binding.switchRequireSameZone.setOnCheckedChangeListener { _, isChecked ->
@@ -316,6 +344,8 @@ class MainActivity : AppCompatActivity() {
         val maxPickupKm = binding.edtMaxPickupDist.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 2.5
         val minRating = binding.edtMinRating.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 4.80
         val minHourly = binding.edtMinHourly.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 30.0
+        val fuelPrice = binding.edtFuelPrice.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 6.29
+        val kmPerUnit = binding.edtKmPerUnit.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 35.0
 
         val config = repository.load().copy(
             isEnabled = binding.switchEnabled.isChecked,
@@ -347,10 +377,15 @@ class MainActivity : AppCompatActivity() {
             rejectNewPassenger = binding.switchRejectNewPassenger.isChecked,
             filterByHourlyRateEnabled = binding.switchFilterHourly.isChecked,
             minHourlyRate = minHourly,
+            fuelCostEnabled = binding.switchFuelEnabled.isChecked,
+            fuelType = currentFuelType,
+            fuelPricePerUnit = fuelPrice,
+            kmPerUnit = kmPerUnit,
             debugMode = binding.switchDebug.isChecked
         )
 
         repository.save(config)
+        updateFuelUiLabels(config)
         updateZoneStatusText(currentMapZones, allowed.size)
         if (!silent) {
             Toast.makeText(this, "Configurações salvas!", Toast.LENGTH_SHORT).show()
@@ -776,33 +811,73 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun updateFuelUiLabels(config: FilterConfig) {
+        val unit = FilterConfig.fuelUnit(config.fuelType)
+        binding.btnFuelType.text = "${config.fuelType} ▾"
+        binding.tilFuelPrice.hint = "Preço R$/$unit"
+        binding.tilKmPerUnit.hint = "Faz km/$unit"
+
+        val est = FuelCalculator.estimate(6.7, 18.90, 42.0, config)
+        binding.txtFuelSummaryHint.text = if (est != null) {
+            "Exemplo em 6,7 km: ${est.costText}  •  ${est.profitText}"
+        } else {
+            "Cálculo de combustível desativado."
+        }
+    }
+
     private fun showPreview(decision: com.ruan.uberareafilter.engine.Decision) {
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "Ative a permissão 'Sobrepor Tela' para ver a prévia do card.", Toast.LENGTH_LONG).show()
             return
         }
         val overlay = previewOverlay ?: OverlayManager(applicationContext).also { previewOverlay = it }
-        val (headline, detail) = when (decision) {
-            com.ruan.uberareafilter.engine.Decision.INSIDE_AREA ->
-                "✅ [PRÉVIA] DENTRO DA ÁREA • ACEITANDO..." to
-                    "✔ Embarque na área\n✔ Destino na área\n✔ R$/h 42 (mín 30)\n✔ Nota 4,95"
-            com.ruan.uberareafilter.engine.Decision.OUTSIDE_AREA ->
-                "⚠️ [PRÉVIA] FORA DOS CRITÉRIOS • RECUSANDO..." to
-                    "✔ Embarque na área\n✘ Destino fora: Rua Exemplo\n✘ R$/h 24 (mín 30)\n✔ Nota 4,90"
-            com.ruan.uberareafilter.engine.Decision.INTER_ZONE ->
-                "🟣 [PRÉVIA] CORRIDA ENTRE ZONAS • VOCÊ DECIDE" to
-                    "✔ Embarque na Zona 1\n✔ Destino na Zona 2\n✔ KM Total dentro do máximo"
-            com.ruan.uberareafilter.engine.Decision.RETURN_TO_AREA ->
-                "🟡 [PRÉVIA] FORA DA ÁREA (EMB ≤ 1KM) • VOCÊ DECIDE" to
-                    "✔ Embarque a 0,8 km\n✘ Você está fora da área definida"
-            else -> "ℹ️ [PRÉVIA]" to "Exemplo"
+        val cfg = repository.load()
+        val est = FuelCalculator.estimate(6.7, 18.90, 42.0, cfg)
+        val profitLine = est?.let { listOfNotNull(it.profitText, it.netHourlyText).joinToString(" · ") }
+
+        val (title, status, app, checklist) = when (decision) {
+            com.ruan.uberareafilter.engine.Decision.INSIDE_AREA -> listOf(
+                "Dentro da área",
+                "ACEITANDO",
+                "UBER",
+                "✔ Nota 4,95  •  ✔ R$42/h  •  ✔ Emb 1,2km\n✔ Embarque: Rua Pirangi\n✔ Destino: Av. Lobo Júnior"
+            )
+            com.ruan.uberareafilter.engine.Decision.OUTSIDE_AREA -> listOf(
+                "Fora dos critérios",
+                "RECUSANDO",
+                "99",
+                "✔ Nota 4,90  •  ✘ R$24/h (mín 30)\n✔ Embarque: Estrada do Laranjal\n✘ Destino fora: Belford Roxo"
+            )
+            com.ruan.uberareafilter.engine.Decision.INTER_ZONE -> listOf(
+                "Corrida entre zonas",
+                "VOCÊ DECIDE",
+                "UBER",
+                "✔ Embarque na Zona 1  •  ✔ Destino na Zona 2  •  ✔ 6,7 km"
+            )
+            com.ruan.uberareafilter.engine.Decision.RETURN_TO_AREA -> listOf(
+                "Fora da área • Emb ≤ 1 km",
+                "RETORNO",
+                "99",
+                "✔ Embarque a 0,8 km\n✘ Você está fora da área definida"
+            )
+            else -> listOf("Prévia", "INFO", "99", "Exemplo")
         }
-        overlay.showRideStatus(
-            decision = decision,
-            headline = headline,
-            metricsLine = "R$ 1,45/km • R$ 42/h • ★ 4,95 • 6,2 km • R$ 18,90",
-            detailLine = detail,
-            autoHideMs = 3500L
+
+        overlay.showRideCard(
+            RideCardModel(
+                decision = decision,
+                appSource = app,
+                title = title,
+                statusLabel = status,
+                priceText = "R$ 18,90",
+                hourlyText = "R$ 42/h",
+                secondaryMetrics = listOf("R$ 2,82/km", "6,7 km", "★ 4,95"),
+                fuelText = est?.costText,
+                profitText = profitLine,
+                profitPositive = (est?.netProfit ?: 1.0) > 0.0,
+                checklist = checklist,
+                autoHideMs = 3500L
+            )
         )
     }
 
