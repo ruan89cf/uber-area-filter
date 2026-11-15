@@ -81,8 +81,9 @@ class UberAccessibilityService : AccessibilityService() {
     private var lastUberEventAt: Long = 0L
     private val sentFavoriteAlerts = mutableSetOf<String>()
 
-    private val nineNinePkgKeywords = listOf("app99", "taxis99", "99", "didi")
-    private val uberPkgKeywords = listOf("ubercab", "uber")
+    // Somente apps de MOTORISTA (evita monitorar com.ubercab passageiro, com.taxis99 passageiro, uberchip, digio.uber...)
+    private val nineNinePkgKeywords = listOf("com.app99.driver", "com.didiglobal.driver", "com.didi.driver")
+    private val uberPkgKeywords = listOf("com.ubercab.driver")
     private val debugExtraPkgKeywords = listOf("photos", "gallery", "galeria")
     private val ignoredTransientPackages = setOf(
         "android",
