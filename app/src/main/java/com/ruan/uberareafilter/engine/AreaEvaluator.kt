@@ -95,6 +95,18 @@ class AreaEvaluator(private val context: Context) {
             filterChecks.add("✘ Área de risco (99)")
         }
 
+        // 1b. Corrida com Paradas intermediarias (Uber "1 parada", "2 paradas")
+        if (offer.hasMultipleStops) {
+            val stopLabel = "${offer.stopsCount.coerceAtLeast(1)} parada(s)"
+            if (config.rejectUberMultiStopRides) {
+                violations.add("Corrida c/ $stopLabel")
+                nonAreaViolations.add("Corrida c/ $stopLabel")
+                filterChecks.add("✘ $stopLabel")
+            } else {
+                filterChecks.add("⚠️ $stopLabel")
+            }
+        }
+
         // 2. Filtro de Nota minima
         if (config.filterByRatingEnabled) {
             if (offer.passengerRating != null) {

@@ -23,10 +23,10 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.ruan.uberareafilter.driver.AppCaptureRouter
 import com.ruan.uberareafilter.engine.AreaEvaluator
 import com.ruan.uberareafilter.engine.Decision
 import com.ruan.uberareafilter.engine.ParsedRideOffer
-import com.ruan.uberareafilter.engine.RideOfferParser
 import com.ruan.uberareafilter.model.FavoriteRideItem
 import com.ruan.uberareafilter.model.FilterConfig
 import com.ruan.uberareafilter.model.RideHistoryItem
@@ -78,9 +78,11 @@ class UberAccessibilityService : AccessibilityService() {
     private var lastContinueClickAt: Long = 0L
     private var lastHeartShownAt: Long = 0L
     private var lastFavoriteAlertCheckAt: Long = 0L
+    private var lastUberEventAt: Long = 0L
     private val sentFavoriteAlerts = mutableSetOf<String>()
 
-    private val driverPkgKeywords = listOf("app99", "taxis99", "99", "didi", "ubercab")
+    private val nineNinePkgKeywords = listOf("app99", "taxis99", "99", "didi")
+    private val uberPkgKeywords = listOf("ubercab", "uber")
     private val debugExtraPkgKeywords = listOf("photos", "gallery", "galeria")
     private val ignoredTransientPackages = setOf(
         "android",
@@ -97,7 +99,7 @@ class UberAccessibilityService : AccessibilityService() {
         evaluator = AreaEvaluator(applicationContext)
         overlayManager = OverlayManager(applicationContext)
         ensureNotificationChannel()
-        log("Servico iniciado (Fechamento Visual Multi-Alvo + Multi-Zonas + Favoritos).")
+        log("Servico iniciado (Modulos: 99 + Uber | Fechamento Cirurgico + Multi-Zonas + Logs em Disco).")
         startPeriodicScanner()
     }
 
@@ -107,12 +109,16 @@ class UberAccessibilityService : AccessibilityService() {
             return
         }
 
-        // So troca o pacote principal se for um pacote monitorado (99/Uber) ou uma mudanca real de janela (TYPE_WINDOW_STATE_CHANGED)
         val config = configRepository.load()
-        val isDriverPkg = isTargetPackage(pkg, config.debugMode)
+        if (config.uberModuleEnabled && uberPkgKeywords.any { pkg.contains(it) }) {
+            lastUberEventAt = System.currentTimeMillis()
+        }
+
+        // So troca o pacote principal se for um pacote monitorado (99/Uber) ou uma mudanca real de janela (TYPE_WINDOW_STATE_CHANGED)
+        val isDriverPkg = isTargetPackage(pkg, config)
         if (isDriverPkg || event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             currentForegroundPkg = pkg
-            val monitored = isDriverAppVisibleOnScreen(config.debugMode)
+            val monitored = isDriverAppVisibleOnScreen(config)
             syncFloatingPill(config, monitored)
 
             if (config.debugMode && pkg != lastLoggedPkg) {
@@ -123,19 +129,51 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Verifica se o app de motorista (99 / Uber) esta realmente aberto em tela cheia,
-     * ignorando a bolha flutuante pequena da 99 quando o usuario esta na tela inicial, WhatsApp ou no nosso proprio app!
+     * Verifica se o app de motorista (99 / Uber) esta aberto em tela cheia OU se a Uber abriu
+     * sua janela flutuante de corrida sobre outro app (inclusive quando a Uber nao esta em 1o plano),
+     * ignorando apenas as bolhas pequenas (icones redondos < 28% da altura da tela).
      */
-    private fun isDriverAppVisibleOnScreen(debugMode: Boolean): Boolean {
+    private fun isDriverAppVisibleOnScreen(config: FilterConfig): Boolean {
         val rootPkg = rootInActiveWindow?.packageName?.toString()?.lowercase().orEmpty()
+
+        // Nunca executa cliques automaticos em cima da nossa propria tela de configuracao
+        if (rootPkg == packageName.lowercase()) {
+            currentForegroundPkg = rootPkg
+            return false
+        }
+
+        // 1. Verifica todas as janelas interativas na tela (captura tanto app em 1o plano quanto janela sobreposta da Uber >= 28% da tela)
+        val minCardWindowHeight = (resources.displayMetrics.heightPixels * 0.28f).toInt()
+        try {
+            val activeWindows = windows
+            if (activeWindows != null) {
+                val rect = Rect()
+                for (win in activeWindows) {
+                    val wPkg = win.root?.packageName?.toString()?.lowercase().orEmpty()
+                    if (wPkg == packageName.lowercase()) continue
+                    if (isTargetPackage(wPkg, config)) {
+                        win.getBoundsInScreen(rect)
+                        // Ignora a bolha redonda pequena (< 28% da tela), mas aceita card flutuante da Uber (~45-55%) e tela cheia
+                        if (rect.height() >= minCardWindowHeight) {
+                            currentForegroundPkg = wPkg
+                            return true
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Verifica se a janela principal ativa e 99 ou Uber
         if (rootPkg.isNotEmpty() && rootPkg !in ignoredTransientPackages && !rootPkg.contains("inputmethod")) {
-            if (isTargetPackage(rootPkg, debugMode)) {
+            if (isTargetPackage(rootPkg, config)) {
                 currentForegroundPkg = rootPkg
                 return true
             }
-            // Se a janela principal ativa e nosso proprio app, Launcher, WhatsApp, etc., NAO estamos na 99!
-            if (rootPkg == packageName.lowercase() ||
-                rootPkg.contains("launcher") ||
+            // Se a Uber disparou evento nos ultimos 3,5 segundos (ex: pop-up de corrida sobre tela inicial/outro app), permite escanear
+            if (config.uberModuleEnabled && System.currentTimeMillis() - lastUberEventAt < 3500L) {
+                return true
+            }
+            if (rootPkg.contains("launcher") ||
                 rootPkg.contains("whatsapp") ||
                 rootPkg.contains("quicksearchbox") ||
                 rootPkg.contains("settings")
@@ -145,26 +183,11 @@ class UberAccessibilityService : AccessibilityService() {
             }
         }
 
-        val minFullHeight = (resources.displayMetrics.heightPixels * 0.55f).toInt()
-        try {
-            val activeWindows = windows
-            if (activeWindows != null) {
-                val rect = Rect()
-                for (win in activeWindows) {
-                    val wPkg = win.root?.packageName?.toString()?.lowercase().orEmpty()
-                    if (isTargetPackage(wPkg, debugMode)) {
-                        win.getBoundsInScreen(rect)
-                        // Ignora a bolha flutuante redonda da 99 (so aceita janela real >= 55% da tela)
-                        if (rect.height() >= minFullHeight) {
-                            currentForegroundPkg = wPkg
-                            return true
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
+        if (config.uberModuleEnabled && System.currentTimeMillis() - lastUberEventAt < 3500L) {
+            return true
+        }
 
-        return isTargetPackage(currentForegroundPkg, debugMode)
+        return isTargetPackage(currentForegroundPkg, config)
     }
 
     private fun syncFloatingPill(config: FilterConfig, isMonitoredApp: Boolean) {
@@ -201,7 +224,7 @@ class UberAccessibilityService : AccessibilityService() {
                         checkUpcomingFavoriteAlerts()
                     }
 
-                    val isMonitored = isDriverAppVisibleOnScreen(config.debugMode)
+                    val isMonitored = isDriverAppVisibleOnScreen(config)
                     syncFloatingPill(config, isMonitored)
 
                     if (config.isEnabled && isMonitored) {
@@ -215,15 +238,16 @@ class UberAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun isTargetPackage(pkg: String, debugMode: Boolean): Boolean {
+    private fun isTargetPackage(pkg: String, config: FilterConfig): Boolean {
         if (pkg.isEmpty() || pkg == packageName.lowercase()) return false
-        if (driverPkgKeywords.any { pkg.contains(it) }) return true
-        if (debugMode && debugExtraPkgKeywords.any { pkg.contains(it) }) return true
+        if (config.nineNineModuleEnabled && nineNinePkgKeywords.any { pkg.contains(it) }) return true
+        if (config.uberModuleEnabled && uberPkgKeywords.any { pkg.contains(it) }) return true
+        if (config.debugMode && debugExtraPkgKeywords.any { pkg.contains(it) }) return true
         return false
     }
 
     private suspend fun scanActiveScreen(config: FilterConfig) {
-        // Usa exclusivamente takeScreenshot + ML Kit OCR + Inspecao Visual de Pixels (evita falsos positivos de nos A11Y em cache)
+        // Usa exclusivamente takeScreenshot + ML Kit OCR + Roteador Modular (99 / Uber) + Inspecao Visual de Pixels
         val bitmap = captureScreenBitmap() ?: return
         val visionText = recognizeText(bitmap)
         val width = bitmap.width
@@ -234,25 +258,28 @@ class UberAccessibilityService : AccessibilityService() {
             return
         }
 
-        val ocrParsed = RideOfferParser.parseFromOcr(
+        val ocrParsed = AppCaptureRouter.parseActiveScreen(
             visionText = visionText,
             bitmap = bitmap,
             screenWidth = width,
             screenHeight = height,
-            rejectHints = config.rejectButtonHints
+            config = config
         )
         bitmap.recycle()
+        if (ocrParsed == null) return
 
         if (config.debugMode && ocrParsed.allTexts.isNotEmpty() && ocrParsed.isRideOffer) {
             val totalKmStr = ocrParsed.totalDistanceKm?.let { String.format(Locale.US, "%.1fkm", it) } ?: "?"
+            val pickupKmStr = ocrParsed.pickupDistanceKm?.let { String.format(Locale.US, "%.1fkm", it) } ?: "?"
             val hrStr = ocrParsed.hourlyRate?.let { String.format(Locale.US, "R$%.0f/h", it) } ?: "?"
+            val stopsStr = if (ocrParsed.hasMultipleStops) " | Paradas=${ocrParsed.stopsCount}" else ""
             log(
-                "OCR (OFERTA): R$/km=${ocrParsed.pricePerKm?.let { String.format(Locale.US, "%.2f", it) } ?: "N/A"} | " +
-                    "$hrStr | Tot=$totalKmStr | Emb=${ocrParsed.pickupAddress ?: "N/A"} | Dest=${ocrParsed.dropoffAddress ?: "N/A"}"
+                "OCR [${ocrParsed.appSource}] (OFERTA): R$/km=${ocrParsed.pricePerKm?.let { String.format(Locale.US, "%.2f", it) } ?: "N/A"} | " +
+                    "$hrStr | EmbKm=$pickupKmStr | Tot=$totalKmStr$stopsStr | Emb=${ocrParsed.pickupAddress ?: "N/A"} | Dest=${ocrParsed.dropoffAddress ?: "N/A"}"
             )
         }
 
-        processParsedScreen(ocrParsed, config, source = "OCR")
+        processParsedScreen(ocrParsed, config, source = "OCR-${ocrParsed.appSource}")
     }
 
     private suspend fun processParsedScreen(
@@ -485,7 +512,8 @@ class UberAccessibilityService : AccessibilityService() {
 
         lastFingerprint = parsed.fingerprint
         lastEvaluatedAt = now
-        log("[$source] Decisao: ${result.decision} -> ${result.reason}")
+        val appTag = "[${parsed.appSource}]"
+        log("[$source] Decisao: ${result.decision} -> ${result.reason} | ${result.checklistText}")
 
         val priceFmt = parsed.ridePrice?.let { String.format(Locale("pt", "BR"), "R$ %.2f", it) } ?: ""
         val kmFmt = parsed.pricePerKm?.let { String.format(Locale("pt", "BR"), "R$ %.2f/km", it) } ?: ""
@@ -493,8 +521,9 @@ class UberAccessibilityService : AccessibilityService() {
         val totKmFmt = parsed.totalDistanceKm?.let { String.format(Locale("pt", "BR"), "%.1f km", it) } ?: ""
         val ratingFmt = parsed.passengerRating?.let { String.format(Locale("pt", "BR"), "★ %.2f", it) }
             ?: if (parsed.isNewPassenger) "★ Novo" else ""
+        val stopsFmt = if (parsed.hasMultipleStops) "🛑 ${parsed.stopsCount} parada(s)" else ""
 
-        val metricsBadges = listOf(kmFmt, hrFmt, ratingFmt, totKmFmt, priceFmt)
+        val metricsBadges = listOf(kmFmt, hrFmt, ratingFmt, totKmFmt, priceFmt, stopsFmt)
             .filter { it.isNotEmpty() }
             .joinToString(" • ")
 
@@ -503,7 +532,7 @@ class UberAccessibilityService : AccessibilityService() {
             val historyItem = RideHistoryItem(
                 id = now,
                 timeFormatted = timeShort,
-                pickupAddress = parsed.pickupAddress.orEmpty(),
+                pickupAddress = "${parsed.appSource}: ${parsed.pickupAddress.orEmpty()}",
                 dropoffAddress = parsed.dropoffAddress.orEmpty(),
                 priceText = priceFmt,
                 pricePerKmText = kmFmt,
@@ -520,9 +549,9 @@ class UberAccessibilityService : AccessibilityService() {
         when (result.decision) {
             Decision.INSIDE_AREA -> {
                 val headline = if (config.autoAcceptInsideArea) {
-                    "✅ DENTRO DA ÁREA • ACEITANDO..."
+                    "✅ $appTag DENTRO DA ÁREA • ACEITANDO..."
                 } else {
-                    "✅ DENTRO DA ÁREA • VOCÊ DECIDE"
+                    "✅ $appTag DENTRO DA ÁREA • VOCÊ DECIDE"
                 }
                 overlayManager.showRideStatus(
                     decision = Decision.INSIDE_AREA,
@@ -538,7 +567,7 @@ class UberAccessibilityService : AccessibilityService() {
                         delay(Random.nextLong(280L, 520L))
                     }
                     val accepted = performNodeOrTap(parsed.acceptNode, parsed.acceptTapPoint)
-                    log("Auto-aceitar disparado em ${parsed.acceptTapPoint} (sucesso=$accepted)")
+                    log("Auto-aceitar $appTag disparado em ${parsed.acceptTapPoint} (sucesso=$accepted)")
                 }
             }
 
@@ -547,7 +576,7 @@ class UberAccessibilityService : AccessibilityService() {
                 // Nunca aceita nem recusa no automatico — destaca em roxo para o motorista decidir!
                 overlayManager.showRideStatus(
                     decision = Decision.INTER_ZONE,
-                    headline = "🟣 CORRIDA ENTRE ZONAS • VOCÊ DECIDE",
+                    headline = "🟣 $appTag CORRIDA ENTRE ZONAS • VOCÊ DECIDE",
                     metricsLine = metricsBadges.ifEmpty { null },
                     detailLine = checklist,
                     autoHideMs = 7000L
@@ -559,7 +588,7 @@ class UberAccessibilityService : AccessibilityService() {
                 // Nao cancela automatico — exibe card amarelo para o motorista pegar e se encaminhar para a area!
                 overlayManager.showRideStatus(
                     decision = Decision.RETURN_TO_AREA,
-                    headline = "🟡 FORA DA ÁREA (EMB ≤ 1KM) • VOCÊ DECIDE",
+                    headline = "🟡 $appTag FORA DA ÁREA (EMB ≤ 1KM) • VOCÊ DECIDE",
                     metricsLine = metricsBadges.ifEmpty { null },
                     detailLine = checklist,
                     autoHideMs = 7000L
@@ -571,7 +600,7 @@ class UberAccessibilityService : AccessibilityService() {
                     lastActionAt = now
                     overlayManager.showRideStatus(
                         decision = Decision.OUTSIDE_AREA,
-                        headline = "⚠️ FORA DOS CRITÉRIOS • RECUSANDO...",
+                        headline = "⚠️ $appTag FORA DOS CRITÉRIOS • RECUSANDO...",
                         metricsLine = metricsBadges.ifEmpty { null },
                         detailLine = checklist,
                         autoHideMs = 4500L
@@ -581,11 +610,11 @@ class UberAccessibilityService : AccessibilityService() {
                     }
                     val clicked = performSinglePrecisionReject(parsed)
                     val pt = parsed.rejectTapPoint
-                    log("Auto-recusa cirurgica disparada em (${pt?.first?.toInt()}x${pt?.second?.toInt()}, sucesso=$clicked)")
+                    log("Auto-recusa cirurgica $appTag disparada em (${pt?.first?.toInt()}x${pt?.second?.toInt()}, sucesso=$clicked)")
                 } else {
                     overlayManager.showRideStatus(
                         decision = Decision.OUTSIDE_AREA,
-                        headline = "⚠️ FORA DOS CRITÉRIOS (AUTO-RECUSA OFF)",
+                        headline = "⚠️ $appTag FORA DOS CRITÉRIOS (AUTO-RECUSA OFF)",
                         metricsLine = metricsBadges.ifEmpty { null },
                         detailLine = checklist
                     )
@@ -694,7 +723,7 @@ class UberAccessibilityService : AccessibilityService() {
     private fun log(message: String) {
         Log.d(TAG, message)
         val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        ConfigRepository.appendLog("[$time] $message")
+        ConfigRepository.appendLog("[$time] $message", applicationContext)
     }
 
     override fun onInterrupt() {

@@ -16,6 +16,7 @@ import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.ruan.uberareafilter.engine.Decision
+import com.ruan.uberareafilter.storage.ConfigRepository
 import kotlin.math.abs
 
 /**
@@ -72,28 +73,47 @@ class OverlayManager(private val context: Context) {
                 }
             }
 
+            val cfg = runCatching { ConfigRepository(context).load() }.getOrNull()
+            val scale = cfg?.bannerScale ?: 1
+            val scaleFactor = when (scale) {
+                0 -> 0.85f // Compacto
+                2 -> 1.22f // Grande
+                else -> 1.0f // Normal
+            }
+
+            bannerTitleView?.textSize = 13f * scaleFactor
+            bannerMetricsView?.textSize = 16f * scaleFactor
+            bannerSubView?.textSize = 12.5f * scaleFactor
+            val padH = dp((16 * scaleFactor).toInt())
+            val padV = dp((10 * scaleFactor).toInt())
+            container.setPadding(padH, padV, padH, padV)
+
             val bg = container.background as? GradientDrawable
             when (decision) {
                 Decision.INSIDE_AREA -> {
-                    bg?.setColor(Color.parseColor("#F20A2E1D"))
+                    val customBg = parseSafeColor(cfg?.colorInsideHex, "#F20A2E1D")
+                    bg?.setColor(customBg)
                     bg?.setStroke(dp(2), Color.parseColor("#00E676"))
                     bannerTitleView?.setTextColor(Color.parseColor("#69F0AE"))
                 }
 
                 Decision.INTER_ZONE -> {
-                    bg?.setColor(Color.parseColor("#F2271252"))
+                    val customBg = parseSafeColor(cfg?.colorInterZoneHex, "#F2271252")
+                    bg?.setColor(customBg)
                     bg?.setStroke(dp(2), Color.parseColor("#B388FF"))
                     bannerTitleView?.setTextColor(Color.parseColor("#E040FB"))
                 }
 
                 Decision.RETURN_TO_AREA -> {
-                    bg?.setColor(Color.parseColor("#F23B2806"))
+                    val customBg = parseSafeColor(cfg?.colorYellowReturnHex, "#F23B2806")
+                    bg?.setColor(customBg)
                     bg?.setStroke(dp(2), Color.parseColor("#FFD600"))
                     bannerTitleView?.setTextColor(Color.parseColor("#FFEA00"))
                 }
 
                 Decision.OUTSIDE_AREA -> {
-                    bg?.setColor(Color.parseColor("#F2330A0A"))
+                    val customBg = parseSafeColor(cfg?.colorOutsideHex, "#F2330A0A")
+                    bg?.setColor(customBg)
                     bg?.setStroke(dp(2), Color.parseColor("#FF5252"))
                     bannerTitleView?.setTextColor(Color.parseColor("#FF8A80"))
                 }
@@ -434,6 +454,21 @@ class OverlayManager(private val context: Context) {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = dp(330)
         }
+    }
+
+    private fun parseSafeColor(rawHex: String?, fallbackHex: String): Int {
+        if (!rawHex.isNullOrBlank()) {
+            val clean = rawHex.trim().removePrefix("#")
+            val withAlpha = when (clean.length) {
+                6 -> "#F2$clean"
+                8 -> "#$clean"
+                else -> rawHex.trim()
+            }
+            try {
+                return Color.parseColor(withAlpha)
+            } catch (_: Exception) {}
+        }
+        return Color.parseColor(fallbackHex)
     }
 
     private fun dp(value: Int): Int {

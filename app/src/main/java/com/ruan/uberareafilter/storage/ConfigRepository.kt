@@ -1,6 +1,10 @@
 package com.ruan.uberareafilter.storage
 
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import com.ruan.uberareafilter.model.FavoriteRideItem
 import com.ruan.uberareafilter.model.FilterConfig
 import com.ruan.uberareafilter.model.MapZone
@@ -12,14 +16,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Persiste configuracoes, zonas do mapa (poligonos e circulos permitidos/proibidos),
- * historico das ultimas corridas e lista de passageiros/horarios favoritos.
+ * historico das ultimas corridas, lista de passageiros/horarios favoritos e logs persistentes em arquivo.
  */
-class ConfigRepository(context: Context) {
+class ConfigRepository(private val appContext: Context) {
 
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    init {
+        ensureDiskLogsLoaded(appContext)
+    }
 
     fun load(): FilterConfig {
         val allowed = prefs.getString(KEY_ALLOWED, "")
@@ -90,6 +102,9 @@ class ConfigRepository(context: Context) {
 
         return FilterConfig(
             isEnabled = prefs.getBoolean(KEY_ENABLED, true),
+            nineNineModuleEnabled = prefs.getBoolean(KEY_MOD_99, true),
+            uberModuleEnabled = prefs.getBoolean(KEY_MOD_UBER, true),
+            rejectUberMultiStopRides = prefs.getBoolean(KEY_REJECT_UBER_STOPS, false),
             autoRejectEnabled = prefs.getBoolean(KEY_AUTO_REJECT, true),
             autoAcceptInsideArea = prefs.getBoolean(KEY_AUTO_ACCEPT, true),
             autoClickContinueEnabled = prefs.getBoolean(KEY_AUTO_CONTINUE, true),
@@ -115,6 +130,12 @@ class ConfigRepository(context: Context) {
             maxTotalDistanceKm = getDouble(KEY_MAX_TOTAL_DIST, 15.0),
             filterByHourlyRateEnabled = prefs.getBoolean(KEY_FILTER_HOURLY, true),
             minHourlyRate = getDouble(KEY_MIN_HOURLY, 30.0),
+            darkThemeEnabled = prefs.getBoolean(KEY_DARK_THEME, true),
+            bannerScale = prefs.getInt(KEY_BANNER_SCALE, 1),
+            colorInsideHex = prefs.getString(KEY_COLOR_INSIDE, "#0A2E1D") ?: "#0A2E1D",
+            colorOutsideHex = prefs.getString(KEY_COLOR_OUTSIDE, "#330A0A") ?: "#330A0A",
+            colorInterZoneHex = prefs.getString(KEY_COLOR_INTER_ZONE, "#271252") ?: "#271252",
+            colorYellowReturnHex = prefs.getString(KEY_COLOR_YELLOW_RETURN, "#3B2806") ?: "#3B2806",
             rejectButtonHints = hints,
             debugMode = prefs.getBoolean(KEY_DEBUG, true)
         )
@@ -130,6 +151,9 @@ class ConfigRepository(context: Context) {
 
         prefs.edit()
             .putBoolean(KEY_ENABLED, config.isEnabled)
+            .putBoolean(KEY_MOD_99, config.nineNineModuleEnabled)
+            .putBoolean(KEY_MOD_UBER, config.uberModuleEnabled)
+            .putBoolean(KEY_REJECT_UBER_STOPS, config.rejectUberMultiStopRides)
             .putBoolean(KEY_AUTO_REJECT, config.autoRejectEnabled)
             .putBoolean(KEY_AUTO_ACCEPT, config.autoAcceptInsideArea)
             .putBoolean(KEY_AUTO_CONTINUE, config.autoClickContinueEnabled)
@@ -155,6 +179,12 @@ class ConfigRepository(context: Context) {
             .putLong(KEY_MAX_TOTAL_DIST, java.lang.Double.doubleToRawLongBits(config.maxTotalDistanceKm))
             .putBoolean(KEY_FILTER_HOURLY, config.filterByHourlyRateEnabled)
             .putLong(KEY_MIN_HOURLY, java.lang.Double.doubleToRawLongBits(config.minHourlyRate))
+            .putBoolean(KEY_DARK_THEME, config.darkThemeEnabled)
+            .putInt(KEY_BANNER_SCALE, config.bannerScale)
+            .putString(KEY_COLOR_INSIDE, config.colorInsideHex)
+            .putString(KEY_COLOR_OUTSIDE, config.colorOutsideHex)
+            .putString(KEY_COLOR_INTER_ZONE, config.colorInterZoneHex)
+            .putString(KEY_COLOR_YELLOW_RETURN, config.colorYellowReturnHex)
             .putString(KEY_REJECT_HINTS, config.rejectButtonHints.joinToString(","))
             .putBoolean(KEY_DEBUG, config.debugMode)
             .apply()
@@ -427,7 +457,11 @@ class ConfigRepository(context: Context) {
 
     companion object {
         private const val PREFS_NAME = "uber_area_filter_prefs"
+        private const val LOG_FILE_NAME = "filtro_inteligente_logs.txt"
         private const val KEY_ENABLED = "enabled"
+        private const val KEY_MOD_99 = "mod_99_enabled"
+        private const val KEY_MOD_UBER = "mod_uber_enabled"
+        private const val KEY_REJECT_UBER_STOPS = "reject_uber_multi_stops"
         private const val KEY_AUTO_REJECT = "auto_reject"
         private const val KEY_AUTO_ACCEPT = "auto_accept_inside"
         private const val KEY_AUTO_CONTINUE = "auto_click_continue"
@@ -454,11 +488,20 @@ class ConfigRepository(context: Context) {
         private const val KEY_MAX_TOTAL_DIST = "max_total_dist"
         private const val KEY_FILTER_HOURLY = "filter_hourly_enabled"
         private const val KEY_MIN_HOURLY = "min_hourly_rate"
+        private const val KEY_DARK_THEME = "dark_theme_enabled"
+        private const val KEY_BANNER_SCALE = "banner_scale"
+        private const val KEY_COLOR_INSIDE = "color_inside_hex"
+        private const val KEY_COLOR_OUTSIDE = "color_outside_hex"
+        private const val KEY_COLOR_INTER_ZONE = "color_inter_zone_hex"
+        private const val KEY_COLOR_YELLOW_RETURN = "color_yellow_return_hex"
         private const val KEY_REJECT_HINTS = "reject_hints"
         private const val KEY_DEBUG = "debug_mode"
         private const val KEY_HISTORY = "ride_history_json"
         private const val KEY_FAVORITES = "favorite_rides_json"
         private const val KEY_LAST_CANDIDATE = "last_candidate_ride_json"
+
+        @Volatile
+        private var cachedLogFile: File? = null
 
         private val _debugLogs = MutableStateFlow<List<String>>(emptyList())
         val debugLogs: StateFlow<List<String>> = _debugLogs.asStateFlow()
@@ -466,13 +509,106 @@ class ConfigRepository(context: Context) {
         private val _historyFlow = MutableStateFlow<List<RideHistoryItem>>(emptyList())
         val historyFlow: StateFlow<List<RideHistoryItem>> = _historyFlow.asStateFlow()
 
-        fun appendLog(line: String) {
-            val updated = (_debugLogs.value + line).takeLast(60)
-            _debugLogs.value = updated
+        private fun resolveLogFile(context: Context): File {
+            cachedLogFile?.let { return it }
+            val dir = context.getExternalFilesDir(null) ?: context.filesDir
+            val file = File(dir, LOG_FILE_NAME)
+            cachedLogFile = file
+            return file
         }
 
-        fun clearLogs() {
+        fun ensureDiskLogsLoaded(context: Context) {
+            try {
+                val file = resolveLogFile(context.applicationContext)
+                if (file.exists() && _debugLogs.value.isEmpty()) {
+                    val lines = file.readLines()
+                    _debugLogs.value = lines.takeLast(120)
+                }
+            } catch (_: Exception) {}
+        }
+
+        fun appendLog(line: String, context: Context? = null) {
+            val updated = (_debugLogs.value + line).takeLast(120)
+            _debugLogs.value = updated
+
+            try {
+                val file = if (context != null) resolveLogFile(context.applicationContext) else cachedLogFile
+                if (file != null) {
+                    // Se o arquivo passar de 600 KB (~5.000 linhas), mantem as ultimas 1.500 linhas
+                    if (file.exists() && file.length() > 600_000L) {
+                        val recent = file.readLines().takeLast(1500)
+                        file.writeText(recent.joinToString("\n") + "\n")
+                    }
+                    file.appendText(line + "\n")
+                }
+            } catch (_: Exception) {}
+        }
+
+        fun clearLogs(context: Context? = null) {
             _debugLogs.value = emptyList()
+            try {
+                val file = if (context != null) resolveLogFile(context.applicationContext) else cachedLogFile
+                if (file != null && file.exists()) {
+                    file.writeText("")
+                }
+            } catch (_: Exception) {}
+        }
+
+        fun getFullLogsText(context: Context): String {
+            return try {
+                val file = resolveLogFile(context.applicationContext)
+                if (file.exists() && file.length() > 0L) {
+                    file.readText()
+                } else {
+                    _debugLogs.value.joinToString("\n")
+                }
+            } catch (_: Exception) {
+                _debugLogs.value.joinToString("\n")
+            }
+        }
+
+        /**
+         * Salva uma copia completa dos logs na pasta publica Downloads do celular e retorna o nome do arquivo salvo.
+         */
+        fun exportLogsToDownloads(context: Context): String? {
+            return exportLogsToDownloadsWithUri(context)?.first
+        }
+
+        /**
+         * Salva os logs em Downloads e retorna (caminho legivel, Uri compartilhavel ou null).
+         */
+        fun exportLogsToDownloadsWithUri(context: Context): Pair<String, android.net.Uri?>? {
+            val header = "=== Filtro Inteligente 99/Uber • Logs exportados em " +
+                SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date()) +
+                " • Android ${Build.VERSION.RELEASE} • ${Build.MANUFACTURER} ${Build.MODEL} ===\n"
+            val content = header + getFullLogsText(context).ifBlank { "Sem registros de log até o momento." }
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val fileName = "Filtro_Logs_$stamp.txt"
+
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    }
+                    val resolver = context.contentResolver
+                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+                    resolver.openOutputStream(uri)?.use { out ->
+                        out.write(content.toByteArray(Charsets.UTF_8))
+                    }
+                    "Download/$fileName" to uri
+                } else {
+                    @Suppress("DEPRECATION")
+                    val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    dir.mkdirs()
+                    val outFile = File(dir, fileName)
+                    outFile.writeText(content)
+                    outFile.absolutePath to null
+                }
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 }

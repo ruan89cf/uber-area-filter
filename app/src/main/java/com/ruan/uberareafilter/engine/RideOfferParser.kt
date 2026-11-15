@@ -35,7 +35,10 @@ data class ParsedRideOffer(
     val acceptTapPoint: Pair<Float, Float>?,
     val continueNode: AccessibilityNodeInfo?,
     val continueTapPoint: Pair<Float, Float>?,
-    val fingerprint: String
+    val fingerprint: String,
+    val appSource: String = "99",
+    val hasMultipleStops: Boolean = false,
+    val stopsCount: Int = 0
 )
 
 /**

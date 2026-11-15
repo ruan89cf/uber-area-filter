@@ -7,6 +7,9 @@ package com.ruan.uberareafilter.model
  */
 data class FilterConfig(
     val isEnabled: Boolean = true,
+    val nineNineModuleEnabled: Boolean = true,
+    val uberModuleEnabled: Boolean = true,
+    val rejectUberMultiStopRides: Boolean = false,
     val autoRejectEnabled: Boolean = true,
     val autoAcceptInsideArea: Boolean = true,
     val autoClickContinueEnabled: Boolean = true,
@@ -39,6 +42,14 @@ data class FilterConfig(
 
     val filterByHourlyRateEnabled: Boolean = true,
     val minHourlyRate: Double = 30.0,
+
+    // Personalizacao Visual (Tema, Tamanho e Cores dos Cards)
+    val darkThemeEnabled: Boolean = true,
+    val bannerScale: Int = 1, // 0 = Compacto, 1 = Medio, 2 = Grande
+    val colorInsideHex: String = "#0A2E1D",
+    val colorOutsideHex: String = "#330A0A",
+    val colorInterZoneHex: String = "#271252",
+    val colorYellowReturnHex: String = "#3B2806",
 
     val rejectButtonHints: List<String> = DEFAULT_REJECT_HINTS,
     val debugMode: Boolean = true
