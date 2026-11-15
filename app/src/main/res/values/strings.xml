@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Filtro de Área 99 / Uber</string>
+    <string name="accessibility_service_label">Filtro de Área 99 / Uber</string>
+    <string name="accessibility_service_description">Lê ofertas de corrida no app 99 Motorista (ou Uber Driver) para verificar se estão dentro da área permitida e recusar automaticamente corridas fora da área configurada.</string>
+</resources>

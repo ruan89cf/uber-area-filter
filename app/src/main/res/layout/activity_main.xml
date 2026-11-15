@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Filtro Inteligente 99 / Uber"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/txtPermissionsStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Verificando permissoes..."
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnAccessibilitySettings"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:text="Acessibilidade" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnOverlaySettings"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:text="Sobrepor Tela" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnOpenFavorites"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:paddingVertical="12dp"
+            android:text="❤️ Passageiros e Horários Favoritos (Mapa e Rota)"
+            android:textSize="14sp" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchFavAlerts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Avisar 30, 20 e 10 min antes do horário de Favorito" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchEnabled"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Filtro ativo" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchFloatingBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Botão flutuante (🟢/⏸️) na 99 (segure 1s p/ ❤️ Favoritar)" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchAutoReject"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Recusar automaticamente fora da área" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchAutoAccept"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Aceitar automaticamente quando DENTRO da área" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchAutoContinue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Auto-clicar imediato em 'Continuar aceitando solicitações'" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchHumanDelay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Atraso humano rápido (0,3s a 0,6s)" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="12dp"
+            android:background="#33888888" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="1. Zonas no Mapa (Polígonos e Círculos 🟢 / 🔴)"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnOpenMap"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:paddingVertical="12dp"
+            android:text="🗺️ Abrir Mapa (Polígonos, Círculos e Zonas Proibidas)"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/txtPolygonStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Nenhuma área demarcada no mapa ainda"
+            android:textSize="13sp" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchRequireBoth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Exigir Embarque E Destino dentro da área" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchRequireSameZone"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Corrida entre zonas de aceitação (Card Roxo 🟣 • respeita KM Máx)" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchYellowOutside"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Fora da área: Card Amarelo 🟡 se embarque ≤ 1 km (p/ retornar à área)" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchAvBrasilOdd"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Av. Brasil: aceitar só lado Bonsucesso/Ramos (Ímpar) e recusar Maré (Par)" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchRejectRiskBadge"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Recusar corridas marcadas como 'Área de risco' pela 99" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="Ruas da Área Permitida (geradas pelo mapa + editável)">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/edtAllowed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="top|start"
+                android:inputType="textMultiLine"
+                android:maxLines="6"
+                android:minLines="3" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:hint="Ruas/locais bloqueados por nome (passarelas, comunidades)">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/edtBlocked"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="top|start"
+                android:inputType="textMultiLine"
+                android:maxLines="4"
+                android:minLines="2" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="14dp"
+            android:background="#33888888" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="2. Filtros de KM, Nota e Valor"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchFilterTotalDist"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="KM Total máximo (Emb + Dest)" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="KM Total">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/edtMaxTotalDist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:text="8.0" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchFilterPickupDist"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="Dist. máx. até embarque (km)" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="KM Emb">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/edtMaxPickupDist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:text="2.5" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchFilterRating"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="Filtrar Nota mínima" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Nota">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/edtMinRating"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:text="4.80" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchRejectNewPassenger"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Recusar Passageiro Novo (quando filtro de nota ativo)" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchFilterHourly"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="Valor mín. R$/h (já soma +2min espera)" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="R$/h mín">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/edtMinHourly"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:text="30.0" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSave"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:paddingVertical="12dp"
+            android:text="💾 Salvar Configurações" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="14dp"
+            android:background="#33888888" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="3. Histórico Recente (1 toque p/ Permitir, Bloquear ou ❤️)"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/historyContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchDebug"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Modo diagnóstico (ver textos lidos da tela)" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Log em tempo real:"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnClearLogs"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Limpar" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/txtLogs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#1E1E1E"
+            android:fontFamily="monospace"
+            android:minHeight="140dp"
+            android:padding="10dp"
+            android:text="Sem registros ainda."
+            android:textColor="#E0E0E0"
+            android:textSize="11sp" />
+
+    </LinearLayout>
+</ScrollView>
