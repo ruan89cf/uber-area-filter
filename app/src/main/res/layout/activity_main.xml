@@ -1,671 +1,1821 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    Painel principal, dividido em cinco abas pela barra inferior:
+      Início    liga/desliga, automação, apps monitorados, modo duplo, favoritos
+      Filtros   ganho por hora, distância, passageiro, combustível
+      Zonas     mapa, regras de área, vias de risco, listas de ruas
+      Histórico prints e últimas corridas
+      Ajustes   aparência e diagnóstico
+
+    Como as abas funcionam: cada card filho direto de rootContentLayout tem android:tag com o
+    nome da aba (o mesmo id do item em menu/main_tabs.xml). SectionTabsLayout mostra só os
+    filhos da aba selecionada. Para mover um card de aba, basta trocar a tag.
+
+    Todos os ids usados pelo MainActivity foram mantidos, com o mesmo tipo de view.
+-->
+<com.ruan.uberareafilter.SectionTabsLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/rootScrollView"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:padding="16dp">
+    android:background="?android:attr/colorBackground"
+    android:orientation="vertical">
 
+    <!-- Barra superior fixa: marca e atalho para as novidades -->
     <LinearLayout
-        android:id="@+id/rootContentLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="12dp">
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="@string/whats_new_logo_description"
+            android:padding="1dp"
+            android:src="@drawable/ic_app_logo"
+            app:shapeAppearanceOverlay="@style/ShapeAppearance.Filtro.LogoSmall"
+            app:strokeColor="?attr/colorOutlineVariant"
+            app:strokeWidth="1dp" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/whats_new_app_title"
+                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle"
+                android:textSize="18sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/main_subtitle"
+                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnWhatsNew"
+            style="@style/Widget.Filtro.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/main_btn_whats_new" />
+    </LinearLayout>
+
+    <ScrollView
+        android:id="@+id/rootScrollView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:fillViewport="true"
+        android:scrollbars="vertical">
+
+        <LinearLayout
+            android:id="@+id/rootContentLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="8dp">
+
+            <!-- INÍCIO · Liga/desliga geral e permissões -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card.Hero"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_inicio">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/bg_tile_hero"
+                            android:importantForAccessibility="no"
+                            android:padding="11dp"
+                            android:src="@drawable/ic_shield"
+                            android:tint="?attr/colorOnPrimary" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchEnabled"
+                            style="@style/Widget.Filtro.Switch.Hero"
+                            android:layout_width="0dp"
+                            android:layout_marginStart="14dp"
+                            android:layout_weight="1"
+                            android:text="@string/main_enabled" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/main_enabled_note"
+                        android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+
+                    <View style="@style/Widget.Filtro.CardDivider.OnHero" />
+
+                    <TextView
+                        android:id="@+id/txtPermissionsStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_permissions_checking"
+                        android:textAppearance="@style/TextAppearance.Filtro.Body"
+                        android:textColor="?attr/colorOnPrimaryContainer" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnAccessibilitySettings"
+                            style="@style/Widget.Filtro.Button.Outlined"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="8dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="@string/main_btn_accessibility" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnOverlaySettings"
+                            style="@style/Widget.Filtro.Button.Outlined"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="@string/main_btn_overlay" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- INÍCIO · Automação -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_inicio">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_bolt"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_auto_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_auto_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoAccept"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_auto_accept" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoReject"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_auto_reject" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoContinue"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_auto_continue" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchHumanDelay"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_human_delay" />
+
+                    <View style="@style/Widget.Filtro.CardDivider" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchFloatingBtn"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_floating_btn" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/main_floating_btn_note"
+                        android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- INÍCIO · Módulos de captura -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_inicio">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_phone"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_modules_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_modules_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchModule99"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_module_99" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchModuleUber"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_module_uber" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnStandaloneAdb"
+                        style="@style/Widget.Filtro.Button.Tonal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/main_btn_standalone_adb" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShizukuSettings"
+                        style="@style/Widget.Filtro.Button.Tonal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:visibility="gone"
+                        android:text="@string/main_btn_shizuku" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- INÍCIO · Coordenação anti-conflito -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_inicio">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_swap"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_dual_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_dual_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchDualConflictGuard"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_dual_guard" />
+
+                    <RadioGroup
+                        android:id="@+id/rgDualConflictPolicy"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp">
+
+                        <RadioButton
+                            android:id="@+id/rbDualBlockAutoAccept"
+                            style="@style/Widget.Filtro.Radio"
+                            android:text="@string/main_dual_block" />
+
+                        <RadioButton
+                            android:id="@+id/rbDualAutoRejectOther"
+                            style="@style/Widget.Filtro.Radio"
+                            android:text="@string/main_dual_reject" />
+                    </RadioGroup>
+
+                    <TextView
+                        android:id="@+id/txtDualConflictHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/main_dual_hint"
+                        android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- INÍCIO · Favoritos -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_inicio">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_favorite"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_fav_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_fav_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnOpenFavorites"
+                        style="@style/Widget.Filtro.Button.Tonal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_btn_favorites" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchFavAlerts"
+                        style="@style/Widget.Filtro.Switch"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/main_fav_alerts" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- FILTROS · Ganho por hora -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_filtros">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_secondary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_money"
+                            android:tint="?attr/colorOnSecondaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_hourly_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_hourly_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchFilterHourly"
+                            style="@style/Widget.Filtro.Switch"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="12dp"
+                            android:layout_weight="1"
+                            android:text="@string/main_filter_hourly" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="104dp"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_hourly">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtMinHourly"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:text="30.0" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchUseNetHourlyRate"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_net_hourly" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchRoundDownNetHourly"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_round_down" />
+
+                    <View style="@style/Widget.Filtro.CardDivider" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchUberCustomHourly"
+                            style="@style/Widget.Filtro.Switch"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="12dp"
+                            android:layout_weight="1"
+                            android:text="@string/main_uber_hourly" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="104dp"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_hourly">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtUberMinHourly"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:text="30.0" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- FILTROS · Distância -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_filtros">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_secondary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_route"
+                            android:tint="?attr/colorOnSecondaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_dist_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_dist_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchFilterTotalDist"
+                            style="@style/Widget.Filtro.Switch"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="12dp"
+                            android:layout_weight="1"
+                            android:text="@string/main_filter_total_dist" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="104dp"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_km">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtMaxTotalDist"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:text="8.0" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchFilterPickupDist"
+                            style="@style/Widget.Filtro.Switch"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="12dp"
+                            android:layout_weight="1"
+                            android:text="@string/main_filter_pickup_dist" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="104dp"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_km">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtMaxPickupDist"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:text="2.5" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- FILTROS · Passageiro e paradas -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_filtros">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_secondary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_person"
+                            android:tint="?attr/colorOnSecondaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_pax_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchFilterRating"
+                            style="@style/Widget.Filtro.Switch"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="12dp"
+                            android:layout_weight="1"
+                            android:text="@string/main_filter_rating" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="104dp"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_rating">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtMinRating"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:text="4.80" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchRejectNewPassenger"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_reject_new" />
+
+                    <View style="@style/Widget.Filtro.CardDivider" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchRejectUberStops"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_reject_stops" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- FILTROS · Combustível -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_filtros">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_secondary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_fuel"
+                            android:tint="?attr/colorOnSecondaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_fuel_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_fuel_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchFuelEnabled"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_fuel_enabled" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnFuelType"
+                            style="@style/Widget.Filtro.Button.Outlined"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="8dp"
+                            android:layout_weight="1.2"
+                            android:layout_height="wrap_content"
+                            android:text="@string/main_btn_fuel_type" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/tilFuelPrice"
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="8dp"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_fuel_price">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtFuelPrice"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:text="6.29" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/tilKmPerUnit"
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_km_per_unit">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtKmPerUnit"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:text="35.0" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/txtFuelSummaryHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/main_fuel_hint"
+                        android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ZONAS · Mapa -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_zonas">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_map"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_map_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_map_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/txtPolygonStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/main_polygon_status"
+                        android:textAppearance="@style/TextAppearance.Filtro.Body" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnOpenMap"
+                        style="@style/Widget.Filtro.Button.Primary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_btn_open_map"
+                        app:icon="@drawable/ic_arrow_forward" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ZONAS · Regras de área -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_zonas">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_place"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_rules_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_rules_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchRequireBoth"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_require_both" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchRequireSameZone"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_same_zone" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoAcceptInterZone"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_accept_inter" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchYellowOutside"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_yellow_outside" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ZONAS · Vias e áreas de risco -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_zonas">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_warning"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_risk_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAvBrasilOdd"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_av_brasil" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchRejectRiskBadge"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_risk_badge" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ZONAS · Listas manuais (recolhível) -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_zonas">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:id="@+id/headerStreetLists"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_list"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_streets_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_streets_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/txtStreetListsToggleArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="▾"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="20sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/layoutStreetListsContent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_allowed">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtAllowed"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="top|start"
+                                android:inputType="textMultiLine"
+                                android:maxLines="6"
+                                android:minLines="3"
+                                android:textSize="14sp" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:hint="@string/main_hint_blocked">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtBlocked"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="top|start"
+                                android:inputType="textMultiLine"
+                                android:maxLines="4"
+                                android:minLines="2"
+                                android:textSize="14sp" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- HISTÓRICO · Prints -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_historico">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_tertiary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_camera"
+                            android:tint="?attr/colorOnTertiaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_shots_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_shots_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchSaveRideScreenshots"
+                        style="@style/Widget.Filtro.Switch"
+                        android:text="@string/main_save_shots" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/txtRideShotsInfo"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/main_shots_info"
+                            android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnClearRideScreenshots"
+                            style="@style/Widget.Filtro.Button.Text"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/main_btn_clear_shots" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- HISTÓRICO · Lista (preenchida pelo código) -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_historico">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_tertiary"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_history"
+                            android:tint="?attr/colorOnTertiaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_history_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_history_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/historyContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="vertical" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- AJUSTES · Aparência (recolhível) -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_ajustes">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:id="@+id/headerVisualCustomization"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_neutral"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_eye"
+                            android:tint="?attr/colorOnSurfaceVariant" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_visual_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_visual_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/txtVisualToggleArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="▾"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="20sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/layoutVisualCustomizationContent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchDarkTheme"
+                            style="@style/Widget.Filtro.Switch"
+                            android:text="@string/main_dark_theme" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchShowRideBanner"
+                            style="@style/Widget.Filtro.Switch"
+                            android:text="@string/main_show_banner" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginEnd="12dp"
+                                android:layout_weight="1"
+                                android:text="@string/main_banner_duration"
+                                android:textAppearance="@style/TextAppearance.Filtro.SwitchLabel" />
+
+                            <com.google.android.material.textfield.TextInputLayout
+                                style="@style/Widget.Filtro.NumberField"
+                                android:layout_width="104dp"
+                                android:layout_height="wrap_content"
+                                android:hint="@string/main_hint_seconds">
+
+                                <com.google.android.material.textfield.TextInputEditText
+                                    android:id="@+id/edtBannerDurationSec"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:inputType="number"
+                                    android:text="5" />
+                            </com.google.android.material.textfield.TextInputLayout>
+                        </LinearLayout>
+
+                        <View style="@style/Widget.Filtro.CardDivider" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/main_size_label"
+                            android:textAppearance="@style/TextAppearance.Filtro.SwitchLabel" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnSizeCompact"
+                                style="@style/Widget.Filtro.Button.Outlined"
+                                android:layout_width="0dp"
+                                android:layout_marginEnd="6dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_size_compact" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnSizeNormal"
+                                style="@style/Widget.Filtro.Button.Outlined"
+                                android:layout_width="0dp"
+                                android:layout_marginEnd="6dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_size_normal" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnSizeLarge"
+                                style="@style/Widget.Filtro.Button.Outlined"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_size_large" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="14dp"
+                            android:text="@string/main_colors_label"
+                            android:textAppearance="@style/TextAppearance.Filtro.SwitchLabel" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnColorGreen"
+                                style="@style/Widget.Filtro.Button.Swatch"
+                                android:layout_width="0dp"
+                                android:layout_marginEnd="6dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_color_green" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnColorRed"
+                                style="@style/Widget.Filtro.Button.Swatch"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_color_red" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnColorPurple"
+                                style="@style/Widget.Filtro.Button.Swatch"
+                                android:layout_width="0dp"
+                                android:layout_marginEnd="6dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_color_purple" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnColorYellow"
+                                style="@style/Widget.Filtro.Button.Swatch"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_color_yellow" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnPreviewBanner"
+                                style="@style/Widget.Filtro.Button.Tonal"
+                                android:layout_width="0dp"
+                                android:layout_marginEnd="6dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_btn_preview" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnResetColors"
+                                style="@style/Widget.Filtro.Button.Text"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_btn_reset" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- AJUSTES · Diagnóstico e logs (recolhível) -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:tag="tab_ajustes">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:id="@+id/headerLogsDiagnostic"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/bg_tile_neutral"
+                            android:importantForAccessibility="no"
+                            android:padding="10dp"
+                            android:src="@drawable/ic_code"
+                            android:tint="?attr/colorOnSurfaceVariant" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:text="@string/main_logs_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:lineSpacingExtra="2dp"
+                                android:text="@string/main_logs_sub"
+                                android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/txtLogsDiagnosticToggleArrow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="▾"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="20sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/layoutLogsDiagnosticContent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchDebug"
+                            style="@style/Widget.Filtro.Switch"
+                            android:text="@string/main_debug" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchXrayDiagnostic"
+                            style="@style/Widget.Filtro.Switch"
+                            android:text="@string/main_xray" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="@string/main_console_label"
+                                android:textAppearance="@style/TextAppearance.Filtro.SwitchLabel" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnExportLogs"
+                                style="@style/Widget.Filtro.Button.Text"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_btn_export_logs" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnClearLogs"
+                                style="@style/Widget.Filtro.Button.Text"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/main_btn_clear_logs" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/txtLogs"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/bg_console"
+                            android:fontFamily="monospace"
+                            android:minHeight="140dp"
+                            android:padding="12dp"
+                            android:text="@string/main_logs_empty"
+                            android:textColor="#D7E0EE"
+                            android:textIsSelectable="true"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Barra de salvar: fixa em todas as abas, porque o salvamento é um só para o painel inteiro -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
         android:orientation="vertical">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Filtro Inteligente 99 / Uber"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/txtPermissionsStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Verificando permissoes..."
-            android:textSize="13sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnAccessibilitySettings"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:layout_weight="1"
-                android:text="Acessibilidade" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnOverlaySettings"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:layout_weight="1"
-                android:text="Sobrepor Tela" />
-        </LinearLayout>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnOpenFavorites"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:paddingVertical="12dp"
-            android:text="❤️ Passageiros e Horários Favoritos (Mapa e Rota)"
-            android:textSize="14sp" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchFavAlerts"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Avisar 30, 20 e 10 min antes do horário de Favorito" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchEnabled"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Filtro ativo" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchFloatingBtn"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Botão flutuante (🟢/⏸️) na 99 (segure 1s p/ ❤️ Favoritar)" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchAutoReject"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Recusar automaticamente fora da área" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchAutoAccept"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Aceitar automaticamente quando DENTRO da área" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchAutoContinue"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Auto-clicar imediato em 'Continuar aceitando solicitações'" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchHumanDelay"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Atraso humano rápido (0,3s a 0,6s)" />
-
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginVertical="10dp"
-            android:background="#33888888" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Módulos de Captura (99 e Uber)"
-            android:textSize="15sp"
-            android:textStyle="bold" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchModule99"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="🟡 Módulo 99 Motorista ativo" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchModuleUber"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="⚫ Módulo Uber Driver ativo (1º plano + janela flutuante)" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchRejectUberStops"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="🛑 Uber: recusar corridas com paradas ('1 parada', '2 paradas')" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="12dp"
-            android:background="#33888888" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="1. Zonas no Mapa (Polígonos e Círculos 🟢 / 🔴)"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnOpenMap"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:paddingVertical="12dp"
-            android:text="🗺️ Abrir Mapa (Polígonos, Círculos e Zonas Proibidas)"
-            android:textSize="14sp" />
-
-        <TextView
-            android:id="@+id/txtPolygonStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Nenhuma área demarcada no mapa ainda"
-            android:textSize="13sp" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchRequireBoth"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Exigir Embarque E Destino dentro da área" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchRequireSameZone"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Corrida entre zonas de aceitação (Card Roxo 🟣 • respeita KM Máx)" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchYellowOutside"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Fora da área: Card Amarelo 🟡 se embarque ≤ 1 km (p/ retornar à área)" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchAvBrasilOdd"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Av. Brasil: aceitar só lado Bonsucesso/Ramos (Ímpar) e recusar Maré (Par)" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchRejectRiskBadge"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Recusar corridas marcadas como 'Área de risco' pela 99" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="Ruas da Área Permitida (geradas pelo mapa + editável)">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/edtAllowed"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="top|start"
-                android:inputType="textMultiLine"
-                android:maxLines="6"
-                android:minLines="3" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:hint="Ruas/locais bloqueados por nome (passarelas, comunidades)">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/edtBlocked"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="top|start"
-                android:inputType="textMultiLine"
-                android:maxLines="4"
-                android:minLines="2" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="14dp"
-            android:background="#33888888" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="2. Filtros de KM, Nota e Valor"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <com.google.android.material.materialswitch.MaterialSwitch
-                android:id="@+id/switchFilterTotalDist"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="2"
-                android:text="KM Total máximo (Emb + Dest)" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="KM Total">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/edtMaxTotalDist"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="numberDecimal"
-                    android:text="8.0" />
-            </com.google.android.material.textfield.TextInputLayout>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <com.google.android.material.materialswitch.MaterialSwitch
-                android:id="@+id/switchFilterPickupDist"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="2"
-                android:text="Dist. máx. até embarque (km)" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="KM Emb">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/edtMaxPickupDist"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="numberDecimal"
-                    android:text="2.5" />
-            </com.google.android.material.textfield.TextInputLayout>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <com.google.android.material.materialswitch.MaterialSwitch
-                android:id="@+id/switchFilterRating"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="2"
-                android:text="Filtrar Nota mínima" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Nota">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/edtMinRating"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="numberDecimal"
-                    android:text="4.80" />
-            </com.google.android.material.textfield.TextInputLayout>
-        </LinearLayout>
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchRejectNewPassenger"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Recusar Passageiro Novo (quando filtro de nota ativo)" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <com.google.android.material.materialswitch.MaterialSwitch
-                android:id="@+id/switchFilterHourly"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="2"
-                android:text="Valor mín. R$/h (já soma +2min espera)" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="R$/h mín">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/edtMinHourly"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="numberDecimal"
-                    android:text="30.0" />
-            </com.google.android.material.textfield.TextInputLayout>
-        </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="10dp"
-            android:background="#26888888" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchFuelEnabled"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="⛽ Mostrar gasto de combustível e lucro líquido no card" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnFuelType"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:layout_weight="1.1"
-                android:text="Tipo: Gasolina ▾"
-                android:textSize="12sp" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilFuelPrice"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:layout_weight="1"
-                android:hint="Preço R$/L">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/edtFuelPrice"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="numberDecimal"
-                    android:text="6.29" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilKmPerUnit"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Faz km/L">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/edtKmPerUnit"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="numberDecimal"
-                    android:text="35.0" />
-            </com.google.android.material.textfield.TextInputLayout>
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/txtFuelSummaryHint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Exemplo em 6,7 km: R$ 1,20 de gasolina"
-            android:textColor="#94A3B8"
-            android:textSize="12sp" />
+            android:background="?attr/colorOutlineVariant" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSave"
+            style="@style/Widget.Filtro.Button.Primary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:paddingVertical="12dp"
-            android:text="💾 Salvar Configurações" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="14dp"
-            android:background="#33888888" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="3. Histórico Recente (1 toque p/ Permitir, Bloquear ou ❤️)"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <LinearLayout
-            android:id="@+id/historyContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchDebug"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Modo diagnóstico (ver textos lidos da tela)" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Logs salvos no celular:"
-                android:textStyle="bold" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnExportLogs"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:text="📤 Exportar / Enviar"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnClearLogs"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🗑️ Limpar"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/txtLogs"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="#1E1E1E"
-            android:fontFamily="monospace"
-            android:minHeight="140dp"
-            android:padding="10dp"
-            android:text="Sem registros ainda."
-            android:textColor="#E0E0E0"
-            android:textSize="11sp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="16dp"
-            android:background="#33888888" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="4. Personalização Visual (Tema, Tamanho e Cores)"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchDarkTheme"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="🌙 Tema Escuro no app (desative p/ ☀️ Tema Claro)" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Tamanho do Card de Notificação:"
-            android:textStyle="bold" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSizeCompact"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:text="Compacto"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSizeNormal"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginHorizontal="4dp"
-                android:layout_weight="1"
-                android:text="Normal"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSizeLarge"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:text="Grande"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Cores Personalizadas das Notificações (toque p/ escolher cor):"
-            android:textStyle="bold" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnColorGreen"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:text="✅ Cor Aceita"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnColorRed"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:text="⚠️ Cor Recusa"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnColorPurple"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:text="🟣 Entre Zonas"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnColorYellow"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:text="🟡 Retorno ≤1km"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="24dp"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnPreviewBanner"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:text="👁️ Testar Card na Tela"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnResetColors"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:text="🔄 Cores Padrão"
-                android:textSize="12sp" />
-        </LinearLayout>
-
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginVertical="10dp"
+            android:minHeight="52dp"
+            android:text="@string/main_btn_save"
+            app:icon="@drawable/ic_save"
+            app:iconGravity="textStart" />
     </LinearLayout>
-</ScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?attr/colorOutlineVariant" />
+
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
+        style="@style/Widget.Filtro.BottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:menu="@menu/main_tabs" />
+
+</com.ruan.uberareafilter.SectionTabsLayout>

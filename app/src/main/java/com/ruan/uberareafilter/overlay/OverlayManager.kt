@@ -1,5 +1,6 @@
 package com.ruan.uberareafilter.overlay
 
+import android.accessibilityservice.AccessibilityService
 import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.content.Context
@@ -57,15 +58,50 @@ class OverlayManager(private val context: Context) {
     private var cardProgress: View? = null
     private var cardProgressAnimator: ObjectAnimator? = null
     private val hideBannerRunnable = Runnable { hideBanner() }
+    @Volatile
+    private var bannerShowing: Boolean = false
 
-    // Botao flutuante discreto (🟢/⏸️)
+    fun isBannerVisible(): Boolean = bannerShowing && bannerContainer != null
+
+    // Botao flutuante discreto (🟢/⏸️) e chip opcional de trava em corrida (modo simultaneo)
     private var floatingPillView: TextView? = null
     private var floatingParams: WindowManager.LayoutParams? = null
+    private var rideLockChipView: TextView? = null
+    private var rideLockParams: WindowManager.LayoutParams? = null
+    private var currentRideLockReleaseCallback: (() -> Unit)? = null
     @Volatile
     private var ignorePillTouchesUntilMs: Long = 0L
 
     fun markAutomatedTapInProgress(blockMs: Long = 950L) {
         ignorePillTouchesUntilMs = System.currentTimeMillis() + blockMs
+    }
+
+    private fun canRenderOverlay(): Boolean =
+        context is AccessibilityService || Settings.canDrawOverlays(context)
+
+    private fun overlayWindowType(): Int =
+        if (context is AccessibilityService) {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        }
+
+    fun suppressOverlaysForTap(durationMs: Long = 260L) {
+        val hideAction = {
+            bannerContainer?.visibility = View.GONE
+            floatingPillView?.visibility = View.GONE
+            rideLockChipView?.visibility = View.GONE
+            mainHandler.postDelayed({
+                bannerContainer?.visibility = View.VISIBLE
+                floatingPillView?.visibility = View.VISIBLE
+                rideLockChipView?.visibility = View.VISIBLE
+            }, durationMs)
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            hideAction()
+        } else {
+            mainHandler.post { hideAction() }
+        }
     }
 
     // Botao de Coracao (❤️ Favoritar na janela de avaliacao)
@@ -95,8 +131,9 @@ class OverlayManager(private val context: Context) {
     }
 
     fun showRideCard(model: RideCardModel) {
-        if (!Settings.canDrawOverlays(context)) return
+        if (!canRenderOverlay()) return
 
+        bannerShowing = true
         mainHandler.post {
             mainHandler.removeCallbacks(hideBannerRunnable)
             var isNew = false
@@ -107,136 +144,12 @@ class OverlayManager(private val context: Context) {
                     windowManager.addView(it, createBannerLayoutParams())
                 } catch (_: Exception) {
                     bannerContainer = null
+                    bannerShowing = false
                     return@post
                 }
             }
-
-            val cfg = runCatching { ConfigRepository(context).load() }.getOrNull()
-            val sf = when (cfg?.bannerScale ?: 1) {
-                0 -> 0.86f // Compacto
-                2 -> 1.2f  // Grande
-                else -> 1.0f
-            }
-
-            // ---- Paleta por decisao ----
-            val accent = accentColorFor(model.decision)
-            val bgBase = when (model.decision) {
-                Decision.INSIDE_AREA -> parseSafeColor(cfg?.colorInsideHex, "#F20A2E1D")
-                Decision.INTER_ZONE -> parseSafeColor(cfg?.colorInterZoneHex, "#F2271252")
-                Decision.RETURN_TO_AREA -> parseSafeColor(cfg?.colorYellowReturnHex, "#F23B2806")
-                Decision.OUTSIDE_AREA -> parseSafeColor(cfg?.colorOutsideHex, "#F2330A0A")
-                Decision.UNKNOWN_KEEP -> Color.parseColor("#F21E293B")
-            }
-            (container.background as? GradientDrawable)?.apply {
-                orientation = GradientDrawable.Orientation.TL_BR
-                colors = intArrayOf(bgBase, blend(bgBase, Color.BLACK, 0.38f))
-                setStroke(dp(1), withAlpha(accent, 0x88))
-            }
-            cardAccentBar?.setBackgroundColor(accent)
-            cardProgress?.setBackgroundColor(withAlpha(accent, 0xCC))
-
-            // ---- Cabecalho: chip do app + titulo + pilula de status ----
-            val app = model.appSource?.uppercase()
-            cardAppChip?.apply {
-                if (app.isNullOrBlank()) {
-                    visibility = View.GONE
-                } else {
-                    visibility = View.VISIBLE
-                    text = if (app == "UBER") "Uber" else app
-                    textSize = 10.5f * sf
-                    val chipBg = background as? GradientDrawable
-                    if (app == "UBER") {
-                        chipBg?.setColor(Color.BLACK)
-                        chipBg?.setStroke(dp(1), Color.parseColor("#E5E7EB"))
-                        setTextColor(Color.WHITE)
-                    } else {
-                        chipBg?.setColor(Color.parseColor("#FFD200"))
-                        chipBg?.setStroke(0, Color.TRANSPARENT)
-                        setTextColor(Color.parseColor("#111111"))
-                    }
-                }
-            }
-            cardTitle?.apply {
-                text = model.title
-                textSize = 13.5f * sf
-            }
-            cardStatusPill?.apply {
-                if (model.statusLabel.isBlank()) {
-                    visibility = View.GONE
-                } else {
-                    visibility = View.VISIBLE
-                    text = "●  ${model.statusLabel.uppercase()}"
-                    textSize = 10f * sf
-                    setTextColor(lighten(accent, 0.35f))
-                    (background as? GradientDrawable)?.apply {
-                        setColor(withAlpha(accent, 0x33))
-                        setStroke(dp(1), withAlpha(accent, 0x99))
-                    }
-                }
-            }
-
-            // ---- Valor principal + R$/h em destaque ----
-            val hasPrice = !model.priceText.isNullOrBlank() || !model.hourlyText.isNullOrBlank()
-            cardPriceRow?.visibility = if (hasPrice) View.VISIBLE else View.GONE
-            cardPrice?.apply {
-                text = model.priceText.orEmpty()
-                textSize = 26f * sf
-            }
-            cardHourly?.apply {
-                text = model.hourlyText.orEmpty()
-                textSize = 19f * sf
-                setTextColor(lighten(accent, 0.25f))
-            }
-
-            // ---- Metricas secundarias ----
-            cardMetrics?.apply {
-                if (model.secondaryMetrics.isEmpty()) {
-                    visibility = View.GONE
-                } else {
-                    visibility = View.VISIBLE
-                    text = model.secondaryMetrics.joinToString("   ·   ")
-                    textSize = 12.5f * sf
-                }
-            }
-
-            // ---- Combustivel + Lucro ----
-            val hasFuel = !model.fuelText.isNullOrBlank() || !model.profitText.isNullOrBlank()
-            cardFuelRow?.visibility = if (hasFuel) View.VISIBLE else View.GONE
-            cardFuel?.apply {
-                text = model.fuelText?.let { "⛽  $it" }.orEmpty()
-                textSize = 12.5f * sf
-            }
-            cardProfit?.apply {
-                text = model.profitText?.let { "💰  $it" }.orEmpty()
-                textSize = 12.5f * sf
-                setTextColor(Color.parseColor(if (model.profitPositive) "#86EFAC" else "#FCA5A5"))
-            }
-
-            // ---- Checklist (✔ / ✘) ----
-            val (chips, details) = splitChecklist(model.checklist)
-            cardDivider?.visibility = if (chips.isNotEmpty() || details.isNotEmpty()) View.VISIBLE else View.GONE
-            cardChecks?.apply {
-                if (chips.isEmpty()) {
-                    visibility = View.GONE
-                } else {
-                    visibility = View.VISIBLE
-                    text = buildChecksSpannable(chips, "     ")
-                    textSize = 12.5f * sf
-                }
-            }
-            cardDetails?.apply {
-                if (details.isEmpty()) {
-                    visibility = View.GONE
-                } else {
-                    visibility = View.VISIBLE
-                    text = buildChecksSpannable(details, "\n")
-                    textSize = 12f * sf
-                }
-            }
-
-            val padH = dp((14 * sf).toInt())
-            val padV = dp((11 * sf).toInt())
-            cardBody?.setPadding(padH, padV, padH, padV)
+            container.visibility = View.VISIBLE
+            bindRideCardViews(container, model)
 
             // ---- Animacao de entrada + barra de tempo restante ----
             if (isNew) {
@@ -259,6 +172,149 @@ class OverlayManager(private val context: Context) {
         }
     }
 
+    /**
+     * Atualiza os dados de texto/metricas de um card ja visivel SEM resetar o temporizador
+     * de fechamento nem reiniciar a barra de progresso ou piscar a animacao.
+     */
+    fun updateRideCardContent(model: RideCardModel) {
+        if (!canRenderOverlay() || !bannerShowing) return
+
+        mainHandler.post {
+            val container = bannerContainer ?: return@post
+            if (!bannerShowing || container.visibility != View.VISIBLE) return@post
+            bindRideCardViews(container, model)
+        }
+    }
+
+    private fun bindRideCardViews(container: LinearLayout, model: RideCardModel) {
+        val cfg = runCatching { ConfigRepository(context).load() }.getOrNull()
+        val sf = when (cfg?.bannerScale ?: 1) {
+            0 -> 0.86f // Compacto
+            2 -> 1.2f  // Grande
+            else -> 1.0f
+        }
+
+        // ---- Paleta por decisao ----
+        val accent = accentColorFor(model.decision)
+        val bgBase = when (model.decision) {
+            Decision.INSIDE_AREA -> parseSafeColor(cfg?.colorInsideHex, "#F20A2E1D")
+            Decision.INTER_ZONE -> parseSafeColor(cfg?.colorInterZoneHex, "#F2271252")
+            Decision.RETURN_TO_AREA -> parseSafeColor(cfg?.colorYellowReturnHex, "#F23B2806")
+            Decision.OUTSIDE_AREA -> parseSafeColor(cfg?.colorOutsideHex, "#F2330A0A")
+            Decision.UNKNOWN_KEEP -> Color.parseColor("#F21E293B")
+        }
+        (container.background as? GradientDrawable)?.apply {
+            orientation = GradientDrawable.Orientation.TL_BR
+            colors = intArrayOf(bgBase, blend(bgBase, Color.BLACK, 0.38f))
+            setStroke(dp(1), withAlpha(accent, 0x88))
+        }
+        cardAccentBar?.setBackgroundColor(accent)
+        cardProgress?.setBackgroundColor(withAlpha(accent, 0xCC))
+
+        // ---- Cabecalho: chip do app + titulo + pilula de status ----
+        val app = model.appSource?.uppercase()
+        cardAppChip?.apply {
+            if (app.isNullOrBlank()) {
+                visibility = View.GONE
+            } else {
+                visibility = View.VISIBLE
+                text = if (app == "UBER") "Uber" else app
+                textSize = 10.5f * sf
+                val chipBg = background as? GradientDrawable
+                if (app == "UBER") {
+                    chipBg?.setColor(Color.BLACK)
+                    chipBg?.setStroke(dp(1), Color.parseColor("#E5E7EB"))
+                    setTextColor(Color.WHITE)
+                } else {
+                    chipBg?.setColor(Color.parseColor("#FFD200"))
+                    chipBg?.setStroke(0, Color.TRANSPARENT)
+                    setTextColor(Color.parseColor("#111111"))
+                }
+            }
+        }
+        cardTitle?.apply {
+            text = model.title
+            textSize = 13.5f * sf
+        }
+        cardStatusPill?.apply {
+            if (model.statusLabel.isBlank()) {
+                visibility = View.GONE
+            } else {
+                visibility = View.VISIBLE
+                text = "●  ${model.statusLabel.uppercase()}"
+                textSize = 10f * sf
+                setTextColor(lighten(accent, 0.35f))
+                (background as? GradientDrawable)?.apply {
+                    setColor(withAlpha(accent, 0x33))
+                    setStroke(dp(1), withAlpha(accent, 0x99))
+                }
+            }
+        }
+
+        // ---- Valor principal + R$/h em destaque ----
+        val hasPrice = !model.priceText.isNullOrBlank() || !model.hourlyText.isNullOrBlank()
+        cardPriceRow?.visibility = if (hasPrice) View.VISIBLE else View.GONE
+        cardPrice?.apply {
+            text = model.priceText.orEmpty()
+            textSize = 26f * sf
+        }
+        cardHourly?.apply {
+            text = model.hourlyText.orEmpty()
+            textSize = 19f * sf
+            setTextColor(lighten(accent, 0.25f))
+        }
+
+        // ---- Metricas secundarias ----
+        cardMetrics?.apply {
+            if (model.secondaryMetrics.isEmpty()) {
+                visibility = View.GONE
+            } else {
+                visibility = View.VISIBLE
+                text = model.secondaryMetrics.joinToString("   ·   ")
+                textSize = 12.5f * sf
+            }
+        }
+
+        // ---- Combustivel + Lucro ----
+        val hasFuel = !model.fuelText.isNullOrBlank() || !model.profitText.isNullOrBlank()
+        cardFuelRow?.visibility = if (hasFuel) View.VISIBLE else View.GONE
+        cardFuel?.apply {
+            text = model.fuelText?.let { "⛽  $it" }.orEmpty()
+            textSize = 12.5f * sf
+        }
+        cardProfit?.apply {
+            text = model.profitText?.let { "💰  $it" }.orEmpty()
+            textSize = 12.5f * sf
+            setTextColor(Color.parseColor(if (model.profitPositive) "#86EFAC" else "#FCA5A5"))
+        }
+
+        // ---- Checklist (✔ / ✘) ----
+        val (chips, details) = splitChecklist(model.checklist)
+        cardDivider?.visibility = if (chips.isNotEmpty() || details.isNotEmpty()) View.VISIBLE else View.GONE
+        cardChecks?.apply {
+            if (chips.isEmpty()) {
+                visibility = View.GONE
+            } else {
+                visibility = View.VISIBLE
+                text = buildChecksSpannable(chips, "     ")
+                textSize = 12.5f * sf
+            }
+        }
+        cardDetails?.apply {
+            if (details.isEmpty()) {
+                visibility = View.GONE
+            } else {
+                visibility = View.VISIBLE
+                text = buildChecksSpannable(details, "\n")
+                textSize = 12f * sf
+            }
+        }
+
+        val padH = dp((14 * sf).toInt())
+        val padV = dp((11 * sf).toInt())
+        cardBody?.setPadding(padH, padV, padH, padV)
+    }
+
     fun showStatus(decision: Decision, message: String, autoHideMs: Long = 4500L) {
         val headline = when (decision) {
             Decision.INSIDE_AREA -> "Dentro da área"
@@ -271,6 +327,7 @@ class OverlayManager(private val context: Context) {
     }
 
     fun hideBanner() {
+        bannerShowing = false
         mainHandler.post {
             mainHandler.removeCallbacks(hideBannerRunnable)
             cardProgressAnimator?.cancel()
@@ -338,8 +395,10 @@ class OverlayManager(private val context: Context) {
         val bad = Color.parseColor("#F87171")
         val warn = Color.parseColor("#FACC15")
         val sb = SpannableStringBuilder()
-        items.forEachIndexed { idx, item ->
+        items.forEachIndexed { idx, rawItem ->
             if (idx > 0) sb.append(separator)
+            // Substitui 📍 (par substituto que quebra com StyleSpan em algumas fontes) por ▸ nitido em ciano
+            val item = if (rawItem.startsWith("📍")) "▸" + rawItem.removePrefix("📍") else rawItem
             val start = sb.length
             sb.append(item)
             val end = sb.length
@@ -347,13 +406,18 @@ class OverlayManager(private val context: Context) {
                 item.startsWith("✔") || item.startsWith("✅") -> ok
                 item.startsWith("✘") || item.startsWith("❌") || item.startsWith("⚠") -> bad
                 item.startsWith("🟡") -> warn
+                item.startsWith("▸") -> Color.parseColor("#38BDF8")
+                item.startsWith("🟣") -> Color.parseColor("#C084FC")
                 else -> null
             }
             if (iconColor != null) {
-                // Icone colorido e em negrito
-                val iconEnd = (start + 1).coerceAtMost(end)
+                val cp = item.codePointAt(0)
+                val iconEnd = Character.offsetByCodePoints(sb, start, 1).coerceAtMost(end)
                 sb.setSpan(ForegroundColorSpan(iconColor), start, iconEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                sb.setSpan(StyleSpan(Typeface.BOLD), start, iconEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                // Nunca aplica StyleSpan(BOLD) sobre emojis com par substituto UTF-16 (evita glifo corrompido)
+                if (Character.charCount(cp) == 1) {
+                    sb.setSpan(StyleSpan(Typeface.BOLD), start, iconEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
                 // Itens reprovados ficam com texto levemente avermelhado
                 if (iconColor == bad) {
                     sb.setSpan(ForegroundColorSpan(Color.parseColor("#FECACA")), iconEnd, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -385,9 +449,11 @@ class OverlayManager(private val context: Context) {
         visible: Boolean,
         isFilterActive: Boolean,
         onToggleFilter: () -> Unit,
-        onLongPressFavorite: () -> Unit
+        onLongPressFavorite: () -> Unit,
+        rideLockBadgeText: String? = null,
+        onReleaseRideLock: (() -> Unit)? = null
     ) {
-        if (!Settings.canDrawOverlays(context) || !visible) {
+        if (!canRenderOverlay() || !visible) {
             hideFloatingControl()
             return
         }
@@ -407,13 +473,73 @@ class OverlayManager(private val context: Context) {
 
             val bg = pill.background as? GradientDrawable
             if (isFilterActive) {
-                pill.text = "🟢 ON"
-                bg?.setColor(Color.parseColor("#DD1B5E20"))
-                bg?.setStroke(dp(2), Color.parseColor("#69F0AE"))
+                pill.text = "ON"
+                bg?.setColor(Color.parseColor("#E616A34A"))
+                bg?.setStroke(dp(2), Color.parseColor("#86EFAC"))
             } else {
-                pill.text = "⏸️ PAUSA"
-                bg?.setColor(Color.parseColor("#DD424242"))
-                bg?.setStroke(dp(2), Color.parseColor("#BDBDBD"))
+                pill.text = "OFF"
+                bg?.setColor(Color.parseColor("#E6DC2626"))
+                bg?.setStroke(dp(2), Color.parseColor("#FCA5A5"))
+            }
+
+            updateRideLockChipOnMain(rideLockBadgeText, onReleaseRideLock)
+        }
+    }
+
+    private fun updateRideLockChipOnMain(badgeText: String?, onRelease: (() -> Unit)?) {
+        currentRideLockReleaseCallback = onRelease
+        if (badgeText.isNullOrBlank() || onRelease == null) {
+            rideLockChipView?.let { v ->
+                runCatching { windowManager.removeView(v) }
+            }
+            rideLockChipView = null
+            rideLockParams = null
+            return
+        }
+
+        val chip = rideLockChipView ?: createRideLockChip().also { created ->
+            rideLockChipView = created
+            val pillParams = floatingParams
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                overlayWindowType(),
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = pillParams?.x ?: dp(10)
+                y = (pillParams?.y ?: dp(240)) + dp(44)
+            }
+            rideLockParams = params
+            try {
+                windowManager.addView(created, params)
+            } catch (_: Exception) {
+                rideLockChipView = null
+                rideLockParams = null
+                return
+            }
+        }
+        chip.text = badgeText
+    }
+
+    private fun createRideLockChip(): TextView {
+        val bg = GradientDrawable().apply {
+            cornerRadius = dp(18).toFloat()
+            setColor(Color.parseColor("#EA1E293B"))
+            setStroke(dp(2), Color.parseColor("#F59E0B"))
+        }
+        return TextView(context).apply {
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#FDE68A"))
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = bg
+            elevation = dp(7).toFloat()
+            setOnClickListener {
+                if (System.currentTimeMillis() >= ignorePillTouchesUntilMs) {
+                    currentRideLockReleaseCallback?.invoke()
+                }
             }
         }
     }
@@ -427,6 +553,14 @@ class OverlayManager(private val context: Context) {
             }
             floatingPillView = null
             floatingParams = null
+            rideLockChipView?.let { view ->
+                try {
+                    windowManager.removeView(view)
+                } catch (_: Exception) {}
+            }
+            rideLockChipView = null
+            rideLockParams = null
+            currentRideLockReleaseCallback = null
         }
     }
 
@@ -436,7 +570,7 @@ class OverlayManager(private val context: Context) {
         onSaveFavorite: () -> Unit,
         autoHideMs: Long = 12000L
     ) {
-        if (!Settings.canDrawOverlays(context)) return
+        if (!canRenderOverlay()) return
 
         mainHandler.post {
             mainHandler.removeCallbacks(hideHeartRunnable)
@@ -668,16 +802,18 @@ class OverlayManager(private val context: Context) {
     ): TextView {
         val bg = GradientDrawable().apply {
             cornerRadius = dp(24).toFloat()
-            setColor(Color.parseColor("#DD1B5E20"))
-            setStroke(dp(2), Color.parseColor("#69F0AE"))
+            setColor(Color.parseColor("#E616A34A"))
+            setStroke(dp(2), Color.parseColor("#86EFAC"))
         }
 
         return TextView(context).apply {
-            text = "🟢 ON"
+            text = "ON"
+            gravity = Gravity.CENTER
+            minWidth = dp(56)
             setTextColor(Color.WHITE)
-            textSize = 12f
+            textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setPadding(dp(14), dp(8), dp(14), dp(8))
             background = bg
             elevation = dp(8).toFloat()
 
@@ -718,6 +854,13 @@ class OverlayManager(private val context: Context) {
                             params.y = initialY + dy
                             try {
                                 windowManager.updateViewLayout(this, params)
+                                rideLockChipView?.let { lockView ->
+                                    rideLockParams?.let { lp ->
+                                        lp.x = params.x
+                                        lp.y = params.y + dp(44)
+                                        windowManager.updateViewLayout(lockView, lp)
+                                    }
+                                }
                             } catch (_: Exception) {}
                         }
                         true
@@ -776,9 +919,10 @@ class OverlayManager(private val context: Context) {
         return WindowManager.LayoutParams(
             maxCardWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -790,7 +934,7 @@ class OverlayManager(private val context: Context) {
         return WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -804,7 +948,7 @@ class OverlayManager(private val context: Context) {
         return WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {

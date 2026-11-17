@@ -1,0 +1,447 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Tela de Novidades. Estrutura:
+      1. Cabeçalho (logo, versão, frase de abertura)
+      2. Três grupos que espelham os objetivos do app: Segurança, Rentabilidade, Praticidade
+      3. Barra fixa com o botão para o painel
+    O único id usado pelo código é btnProceedToMain.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground"
+    android:orientation="vertical">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="24dp"
+            android:paddingBottom="28dp">
+
+            <!-- Cabeçalho: marca -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:contentDescription="@string/whats_new_logo_description"
+                    android:padding="1dp"
+                    android:src="@drawable/ic_app_logo"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearance.Filtro.Logo"
+                    app:strokeColor="?attr/colorOutlineVariant"
+                    app:strokeWidth="1dp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="14dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/whats_new_app_title"
+                        android:textAppearance="@style/TextAppearance.Filtro.ItemTitle"
+                        android:textSize="18sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/whats_new_app_subtitle"
+                        android:textAppearance="@style/TextAppearance.Filtro.Body" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Cabeçalho: versão e frase de abertura -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:background="@drawable/bg_pill"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:text="@string/whats_new_version_pill"
+                android:textAppearance="@style/TextAppearance.Filtro.Caption"
+                android:textColor="?attr/colorOnPrimaryContainer"
+                android:fontFamily="sans-serif-medium" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:accessibilityHeading="true"
+                android:lineSpacingExtra="2dp"
+                android:text="@string/whats_new_headline"
+                android:textAppearance="@style/TextAppearance.Filtro.Headline" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:lineSpacingExtra="3dp"
+                android:text="@string/whats_new_lead"
+                android:textAppearance="@style/TextAppearance.Filtro.Body"
+                android:textSize="15sp" />
+
+            <!-- Grupo: safety -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginTop="28dp"
+                android:layout_marginBottom="10dp"
+                android:accessibilityHeading="true"
+                android:text="@string/whats_new_group_safety"
+                android:textAppearance="@style/TextAppearance.Filtro.Overline"
+                android:textColor="?attr/colorPrimary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="16dp">
+
+                        <ImageView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="11dp"
+                            android:src="@drawable/ic_map"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/whats_new_zones_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:lineSpacingExtra="3dp"
+                                android:text="@string/whats_new_zones_body"
+                                android:textAppearance="@style/TextAppearance.Filtro.Body" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <View style="@style/Widget.Filtro.RowDivider" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="16dp">
+
+                        <ImageView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/bg_tile_primary"
+                            android:importantForAccessibility="no"
+                            android:padding="11dp"
+                            android:src="@drawable/ic_lock"
+                            android:tint="?attr/colorOnPrimaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/whats_new_dual_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:lineSpacingExtra="3dp"
+                                android:text="@string/whats_new_dual_body"
+                                android:textAppearance="@style/TextAppearance.Filtro.Body" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Grupo: profit -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginTop="28dp"
+                android:layout_marginBottom="10dp"
+                android:accessibilityHeading="true"
+                android:text="@string/whats_new_group_profit"
+                android:textAppearance="@style/TextAppearance.Filtro.Overline"
+                android:textColor="?attr/colorSecondary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="16dp">
+
+                        <ImageView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/bg_tile_secondary"
+                            android:importantForAccessibility="no"
+                            android:padding="11dp"
+                            android:src="@drawable/ic_fuel"
+                            android:tint="?attr/colorOnSecondaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/whats_new_fuel_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:lineSpacingExtra="3dp"
+                                android:text="@string/whats_new_fuel_body"
+                                android:textAppearance="@style/TextAppearance.Filtro.Body" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Grupo: ease -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginTop="28dp"
+                android:layout_marginBottom="10dp"
+                android:accessibilityHeading="true"
+                android:text="@string/whats_new_group_ease"
+                android:textAppearance="@style/TextAppearance.Filtro.Overline"
+                android:textColor="?attr/colorTertiary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.Filtro.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="16dp">
+
+                        <ImageView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/bg_tile_tertiary"
+                            android:importantForAccessibility="no"
+                            android:padding="11dp"
+                            android:src="@drawable/ic_camera"
+                            android:tint="?attr/colorOnTertiaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/whats_new_shots_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:lineSpacingExtra="3dp"
+                                android:text="@string/whats_new_shots_body"
+                                android:textAppearance="@style/TextAppearance.Filtro.Body" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <View style="@style/Widget.Filtro.RowDivider" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="16dp">
+
+                        <ImageView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/bg_tile_tertiary"
+                            android:importantForAccessibility="no"
+                            android:padding="11dp"
+                            android:src="@drawable/ic_favorite"
+                            android:tint="?attr/colorOnTertiaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/whats_new_favorites_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:lineSpacingExtra="3dp"
+                                android:text="@string/whats_new_favorites_body"
+                                android:textAppearance="@style/TextAppearance.Filtro.Body" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <View style="@style/Widget.Filtro.RowDivider" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="16dp">
+
+                        <ImageView
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/bg_tile_tertiary"
+                            android:importantForAccessibility="no"
+                            android:padding="11dp"
+                            android:src="@drawable/ic_dashboard"
+                            android:tint="?attr/colorOnTertiaryContainer" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/whats_new_layout_title"
+                                android:textAppearance="@style/TextAppearance.Filtro.ItemTitle" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:lineSpacingExtra="3dp"
+                                android:text="@string/whats_new_layout_body"
+                                android:textAppearance="@style/TextAppearance.Filtro.Body" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Barra fixa com a ação principal -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?attr/colorOutlineVariant" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnProceedToMain"
+            style="@style/Widget.Filtro.Button.Primary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/whats_new_cta"
+            app:icon="@drawable/ic_arrow_forward" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:text="@string/whats_new_footer_hint"
+            android:textAppearance="@style/TextAppearance.Filtro.Caption" />
+    </LinearLayout>
+
+</LinearLayout>

@@ -18,7 +18,8 @@ data class MapZone(
     val points: List<Pair<Double, Double>> = emptyList(),
     val centerLat: Double = 0.0,
     val centerLng: Double = 0.0,
-    val radiusMeters: Double = 1000.0
+    val radiusMeters: Double = 1000.0,
+    val streetNames: List<String> = emptyList()
 )
 
 data class RideHistoryItem(
@@ -31,7 +32,8 @@ data class RideHistoryItem(
     val hourlyRateText: String,
     val ratingText: String,
     val isInsideArea: Boolean,
-    val reason: String
+    val reason: String,
+    val screenshotPath: String = ""
 )
 
 data class FavoriteRideItem(

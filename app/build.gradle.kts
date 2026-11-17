@@ -49,6 +49,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        aidl = true
     }
 
     testOptions {
@@ -69,5 +70,18 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
+    implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
+    implementation("org.conscrypt:conscrypt-android:2.5.3")
     testImplementation("junit:junit:4.13.2")
 }
+
+// TEMPORARIO: copia os fontes Kotlin para uma pasta rasa na raiz do projeto, apenas para leitura
+// durante a revisao de codigo. Nao altera nada em src/. Pode ser removido junto com a pasta
+// _fontes_espelho quando a revisao terminar.
+val espelharFontes = tasks.register<Copy>("espelharFontes") {
+    from("src/main/java/com/ruan/uberareafilter")
+    into(rootProject.layout.projectDirectory.dir("_fontes_espelho"))
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(espelharFontes) }

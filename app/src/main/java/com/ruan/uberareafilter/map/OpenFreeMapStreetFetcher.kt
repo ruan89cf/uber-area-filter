@@ -54,15 +54,26 @@ object OpenFreeMapStreetFetcher {
         val maxLng: Double
     )
 
-    suspend fun fetchStreets(allowedZones: List<MapZone>): List<String> = withContext(Dispatchers.IO) {
-        if (allowedZones.isEmpty()) return@withContext emptyList()
+    suspend fun fetchStreets(allowedZones: List<MapZone>): List<String> {
+        val perZone = fetchStreetsPerZone(allowedZones)
+        val merged = sortedSetOf<String>(String.CASE_INSENSITIVE_ORDER)
+        perZone.values.forEach { merged.addAll(it) }
+        return merged.toList()
+    }
 
-        val template = resolveTileTemplate() ?: return@withContext emptyList()
+    /**
+     * Extrai as ruas e pracas de cada Zona Permitida ("caixa") separadamente e retorna Mapa zoneId -> Lista de Ruas,
+     * permitindo tambem identificar corridas entre zonas mesmo na listagem offline.
+     */
+    suspend fun fetchStreetsPerZone(allowedZones: List<MapZone>): Map<Long, List<String>> = withContext(Dispatchers.IO) {
+        if (allowedZones.isEmpty()) return@withContext emptyMap()
+
+        val template = resolveTileTemplate() ?: return@withContext emptyMap()
         val zoneBounds = allowedZones.mapNotNull { buildZoneBounds(it) }
-        if (zoneBounds.isEmpty()) return@withContext emptyList()
+        if (zoneBounds.isEmpty()) return@withContext emptyMap()
 
         val tiles = collectNeededTiles(zoneBounds).take(MAX_TILES)
-        if (tiles.isEmpty()) return@withContext emptyList()
+        if (tiles.isEmpty()) return@withContext emptyMap()
 
         val rawTiles = coroutineScope {
             tiles.chunked(6).flatMap { batch ->
@@ -78,11 +89,11 @@ object OpenFreeMapStreetFetcher {
             }
         }
 
-        val streetNames = sortedSetOf<String>(String.CASE_INSENSITIVE_ORDER)
+        val perZoneSet = zoneBounds.associate { it.zone.id to sortedSetOf<String>(String.CASE_INSENSITIVE_ORDER) }
         for ((tx, ty, pbfBytes) in rawTiles) {
-            extractStreetsFromTile(pbfBytes, ZOOM, tx, ty, zoneBounds, streetNames)
+            extractStreetsFromTilePerZone(pbfBytes, ZOOM, tx, ty, zoneBounds, perZoneSet)
         }
-        streetNames.toList()
+        perZoneSet.mapValues { (_, set) -> set.toList() }
     }
 
     internal fun extractStreetsFromTile(
@@ -92,6 +103,19 @@ object OpenFreeMapStreetFetcher {
         ty: Int,
         zoneBounds: List<ZoneBounds>,
         out: MutableSet<String>
+    ) {
+        val perZone = zoneBounds.associate { it.zone.id to sortedSetOf<String>(String.CASE_INSENSITIVE_ORDER) }
+        extractStreetsFromTilePerZone(pbfBytes, zoom, tx, ty, zoneBounds, perZone)
+        perZone.values.forEach { out.addAll(it) }
+    }
+
+    private fun extractStreetsFromTilePerZone(
+        pbfBytes: ByteArray,
+        zoom: Int,
+        tx: Int,
+        ty: Int,
+        zoneBounds: List<ZoneBounds>,
+        outPerZone: Map<Long, MutableSet<String>>
     ) {
         for ((fieldNo, _, layerBytes) in parseProtoMessages(pbfBytes)) {
             if (fieldNo != 3 || layerBytes !is ByteArray) continue
@@ -112,7 +136,9 @@ object OpenFreeMapStreetFetcher {
                 }
             }
 
-            if (layerName != "transportation_name") continue
+            val isStreetLayer = layerName == "transportation_name"
+            val isPlazaPoiLayer = layerName == "park" || layerName == "poi"
+            if (!isStreetLayer && !isPlazaPoiLayer) continue
 
             val nameKeyIdx = keys.indexOf("name")
             val namePtKeyIdx = keys.indexOf("name:pt")
@@ -150,22 +176,26 @@ object OpenFreeMapStreetFetcher {
 
                 if (streetName.length < 3) continue
                 if (roadClass in excludedClasses) continue
-                if (TextNormalizer.normalize(streetName).startsWith("estacao ")) continue
+                val normName = TextNormalizer.normalize(streetName)
+                if (normName.startsWith("estacao ")) continue
+                if (isPlazaPoiLayer && !normName.startsWith("praca ") && !normName.startsWith("largo ")) continue
                 val g = geomBytes ?: continue
 
                 val lines = decodeGeometryLines(g, extent, zoom, tx, ty)
                 if (lines.isEmpty()) continue
 
-                if (anyLineIntersectsZones(lines, zoneBounds)) {
-                    out.add(streetName)
+                for (zb in zoneBounds) {
+                    if (anyLineIntersectsSingleBounds(lines, zb)) {
+                        outPerZone[zb.zone.id]?.add(streetName)
+                    }
                 }
             }
         }
     }
 
-    private fun anyLineIntersectsZones(
+    private fun anyLineIntersectsSingleBounds(
         lines: List<List<Pair<Double, Double>>>,
-        zoneBounds: List<ZoneBounds>
+        zb: ZoneBounds
     ): Boolean {
         for (line in lines) {
             if (line.isEmpty()) continue
@@ -182,13 +212,11 @@ object OpenFreeMapStreetFetcher {
                 if (lng > lMaxLng) lMaxLng = lng
             }
 
-            for (zb in zoneBounds) {
-                if (lMaxLat < zb.minLat || lMinLat > zb.maxLat || lMaxLng < zb.minLng || lMinLng > zb.maxLng) {
-                    continue
-                }
-                if (lineIntersectsSingleZone(line, zb.zone)) {
-                    return true
-                }
+            if (lMaxLat < zb.minLat || lMinLat > zb.maxLat || lMaxLng < zb.minLng || lMinLng > zb.maxLng) {
+                continue
+            }
+            if (lineIntersectsSingleZone(line, zb.zone)) {
+                return true
             }
         }
         return false

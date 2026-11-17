@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Tema único do app. As cores vêm de colors.xml (claro) e values-night/colors.xml (escuro),
+        então o mesmo tema atende aos dois modos e ao switch "Tema Escuro" do painel.
+    -->
+    <style name="Theme.FiltroInteligente" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/fi_primary</item>
+        <item name="colorOnPrimary">@color/fi_on_primary</item>
+        <item name="colorPrimaryContainer">@color/fi_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/fi_on_primary_container</item>
+        <item name="colorPrimaryInverse">@color/fi_primary_inverse</item>
+
+        <item name="colorSecondary">@color/fi_secondary</item>
+        <item name="colorOnSecondary">@color/fi_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/fi_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/fi_on_secondary_container</item>
+
+        <item name="colorTertiary">@color/fi_tertiary</item>
+        <item name="colorOnTertiary">@color/fi_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/fi_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/fi_on_tertiary_container</item>
+
+        <item name="colorError">@color/fi_error</item>
+        <item name="colorOnError">@color/fi_on_error</item>
+        <item name="colorErrorContainer">@color/fi_error_container</item>
+        <item name="colorOnErrorContainer">@color/fi_on_error_container</item>
+
+        <item name="android:colorBackground">@color/fi_background</item>
+        <item name="colorOnBackground">@color/fi_on_surface</item>
+        <item name="colorSurface">@color/fi_surface</item>
+        <item name="colorOnSurface">@color/fi_on_surface</item>
+        <item name="colorSurfaceVariant">@color/fi_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/fi_on_surface_variant</item>
+        <item name="colorSurfaceInverse">@color/fi_surface_inverse</item>
+        <item name="colorOnSurfaceInverse">@color/fi_on_surface_inverse</item>
+        <item name="colorSurfaceDim">@color/fi_surface_dim</item>
+        <item name="colorSurfaceBright">@color/fi_surface_bright</item>
+        <item name="colorSurfaceContainerLowest">@color/fi_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/fi_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/fi_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/fi_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/fi_surface_container_highest</item>
+
+        <item name="colorOutline">@color/fi_outline</item>
+        <item name="colorOutlineVariant">@color/fi_outline_variant</item>
+
+        <item name="android:statusBarColor">@color/fi_background</item>
+        <item name="android:navigationBarColor">@color/fi_surface</item>
+    </style>
+</resources>

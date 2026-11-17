@@ -1,5 +1,10 @@
 package com.ruan.uberareafilter.model
 
+enum class DualConflictPolicy {
+    BLOCK_AUTO_ACCEPT_ONLY,
+    AUTO_REJECT_OTHER_APP
+}
+
 /**
  * Configuracao completa do filtro de zonas demarcadas (multiplos poligonos/circulos,
  * zonas permitidas e proibidas), corrida entre zonas (card roxo), regra da Av. Brasil (impar/par),
@@ -9,6 +14,8 @@ data class FilterConfig(
     val isEnabled: Boolean = true,
     val nineNineModuleEnabled: Boolean = true,
     val uberModuleEnabled: Boolean = true,
+    val dualConflictGuardEnabled: Boolean = true,
+    val dualConflictPolicy: DualConflictPolicy = DualConflictPolicy.BLOCK_AUTO_ACCEPT_ONLY,
     val rejectUberMultiStopRides: Boolean = false,
     val autoRejectEnabled: Boolean = true,
     val autoAcceptInsideArea: Boolean = true,
@@ -20,6 +27,7 @@ data class FilterConfig(
 
     val requireBothPickupAndDropoff: Boolean = true,
     val allowInterZoneRides: Boolean = false,
+    val autoAcceptInterZone: Boolean = false,
     val yellowCardOutsideAreaEnabled: Boolean = true,
     val avBrasilOddSideOnly: Boolean = true,
     val reject99RiskAreaBadge: Boolean = true,
@@ -42,10 +50,16 @@ data class FilterConfig(
 
     val filterByHourlyRateEnabled: Boolean = true,
     val minHourlyRate: Double = 30.0,
+    val uberCustomHourlyEnabled: Boolean = false,
+    val uberMinHourlyRate: Double = 30.0,
+    val useNetHourlyRate: Boolean = false,
+    val roundDownNetHourlyRate: Boolean = false,
 
-    // Personalizacao Visual (Tema, Tamanho e Cores dos Cards)
+    // Personalizacao Visual (Tema, Tamanho, Tempo e Cores dos Cards)
     val darkThemeEnabled: Boolean = true,
     val bannerScale: Int = 1, // 0 = Compacto, 1 = Medio, 2 = Grande
+    val showRideInfoBannerEnabled: Boolean = true,
+    val bannerAutoHideSeconds: Int = 5,
     val colorInsideHex: String = "#0A2E1D",
     val colorOutsideHex: String = "#330A0A",
     val colorInterZoneHex: String = "#271252",
@@ -58,8 +72,18 @@ data class FilterConfig(
     val kmPerUnit: Double = 35.0,
 
     val rejectButtonHints: List<String> = DEFAULT_REJECT_HINTS,
-    val debugMode: Boolean = true
+    val debugMode: Boolean = true,
+    val xrayDiagnosticEnabled: Boolean = true,
+    val saveRideScreenshotsEnabled: Boolean = true
 ) {
+    /** Valor hora minimo efetivo para o app da oferta (Uber pode usar valor separado da 99) */
+    fun effectiveMinHourlyRate(appSource: String): Double =
+        if (appSource.equals("UBER", ignoreCase = true) && uberCustomHourlyEnabled) {
+            uberMinHourlyRate
+        } else {
+            minHourlyRate
+        }
+
     companion object {
         const val FUEL_GASOLINA = "Gasolina"
         const val FUEL_ETANOL = "Etanol"

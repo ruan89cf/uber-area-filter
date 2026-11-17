@@ -38,7 +38,9 @@ data class ParsedRideOffer(
     val fingerprint: String,
     val appSource: String = "99",
     val hasMultipleStops: Boolean = false,
-    val stopsCount: Int = 0
+    val stopsCount: Int = 0,
+    val isCancelledScreen: Boolean = false,
+    val isIdleHomeScreen: Boolean = false
 )
 
 /**
@@ -56,12 +58,14 @@ object RideOfferParser {
         "continuar aceitando solicitacoes",
         "varias solicitacoes seguidas recusadas"
     )
-    private val ownOverlayMarkers = listOf(
+    internal val COMMON_OWN_OVERLAY_MARKERS = listOf(
         "fora da area",
         "fora dos criterios",
         "dentro da area",
         "corrida entre zonas",
-        "recusando...",
+        "recusando",
+        "recusa off",
+        "aceitando",
         "voce decide",
         "aguardando leitura",
         "continuando online",
@@ -74,8 +78,25 @@ object RideOfferParser {
         "zona proibida",
         "km total",
         "alerta de favorito",
-        "/km •"
+        "/km •",
+        "de gasolina",
+        "de etanol",
+        "de gnv",
+        "de diesel",
+        "de energia",
+        "lucro r$",
+        "historico recente",
+        "print silencioso",
+        "limpar imagens",
+        "prints salvos",
+        "toque no card",
+        "toque neste card",
+        "emb:",
+        "dest:",
+        "bloqueado:",
+        "permitida "
     )
+    private val ownOverlayMarkers = COMMON_OWN_OVERLAY_MARKERS
     private val ratingScreenHints = listOf(
         "como foi sua corrida",
         "como foi a corrida",
@@ -94,33 +115,76 @@ object RideOfferParser {
         "finalizar corrida",
         "ir para o passageiro",
         "em viagem",
-        "chegada prevista"
+        "chegada prevista",
+        "a caminho do passageiro",
+        "aguardando passageiro"
+    )
+    private val cancelledHints = listOf(
+        "usuario cancelou",
+        "passageiro cancelou",
+        "corrida cancelada",
+        "viagem cancelada",
+        "solicitacao cancelada"
+    )
+    private val nineNineIdleHomeHints = listOf(
+        "recompensas",
+        "ganhos desta",
+        "valor da ultima",
+        "entrega moto",
+        "ta:",
+        "tf:",
+        "area de alta demanda"
     )
 
     private val currencyRegex = Regex("""(r\$|rs|\$)\s*(\d+([.,]\d{1,2})?)(\s*/\s*h(ora)?)?""", RegexOption.IGNORE_CASE)
-    private val hourlyRateRegex = Regex("""(r\$|rs|\$)\s*(\d+([.,]\d{1,2})?)\s*/\s*h(ora)?""", RegexOption.IGNORE_CASE)
+    private val hourlyRateRegex = Regex("""(r\$|rs|\$)\s*(\d+([.,]\d{1,2})?)\s*/\s*h(?:ora)?(?:\b|$)""", RegexOption.IGNORE_CASE)
     private val distanceOrTimeRegex = Regex("""\b\d+([.,]\d+)?\s*(km|m|min|h)\b""", RegexOption.IGNORE_CASE)
     private val navBannerDistRegex = Regex("""^\d+([.,]\d+)?\s*(m|km)$""", RegexOption.IGNORE_CASE)
     private val legDistRegex = Regex("""\(\s*(\d+([.,]\d+)?)\s*(km|m)\s*\)""", RegexOption.IGNORE_CASE)
-    private val legMinutesRegex = Regex("""\b(\d+)\s*min\b""", RegexOption.IGNORE_CASE)
+    private val legMinutesRegex = Regex("""\b(\d+)\s*min(?:uto[s]?)?\b""", RegexOption.IGNORE_CASE)
+    private val minutesOnlyRegex = Regex("""^\s*(\d{1,3})\s*min(?:uto[s]?)?\s*$""", RegexOption.IGNORE_CASE)
+    private val distanceOnlyRegex = Regex("""^\s*\(?\s*(\d+(?:[.,]\d+)?)\s*(km|m)\s*\)?\s*$""", RegexOption.IGNORE_CASE)
     private val surgeRegex = Regex("""\b\d+([.,]\d+)?\s*x\b""", RegexOption.IGNORE_CASE)
     private val ratingRegex = Regex("""\b([345][.,]\d{2})\b""")
-    private val tripLegHeaderRegex = Regex(""".*\b\d+\s*min\s*\(.*""", RegexOption.IGNORE_CASE)
+    private val tripLegHeaderRegex = Regex(""".*\b\d+\s*min(?:uto[s]?)?\s*\(.*""", RegexOption.IGNORE_CASE)
     private val riskBadgeCleanRegex = Regex("""([o0!•]\s*)?\b[aá]rea\s+de\s+risco\b""", RegexOption.IGNORE_CASE)
     private val passengerNameRegex = Regex("""como\s+foi\s+(?:sua\s+|a\s+)?corrida\s+com\s+([^?.\n!]+)""", RegexOption.IGNORE_CASE)
+    private val uberEstBannerRegex = Regex("""\best\.?\s*(?:de\s*)?(?:r\$|rs|\$)""", RegexOption.IGNORE_CASE)
+    private val uberRatingWithCountRegex = Regex("""\b[345][.,]\d{2}\s*\(\s*\d+\s*\)""")
+    private val nineNineLegCountRegex = Regex("""\b\d+\s*corridas?\b""", RegexOption.IGNORE_CASE)
 
     fun parseFromOcr(
         visionText: Text,
         bitmap: Bitmap?,
         screenWidth: Int,
         screenHeight: Int,
-        rejectHints: List<String>
+        rejectHints: List<String>,
+        strictSingleApp: Boolean = false
     ): ParsedRideOffer {
-        val normalizedRejectHints = rejectHints.map { TextNormalizer.normalize(it) }
-
         val sortedLines = visionText.textBlocks
             .flatMap { it.lines }
             .sortedWith(compareBy({ it.boundingBox?.top ?: 0 }, { it.boundingBox?.left ?: 0 }))
+            .map { it.text to it.boundingBox }
+
+        return parseFromOrderedLines(
+            sortedLines = sortedLines,
+            bitmap = bitmap,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            rejectHints = rejectHints,
+            strictSingleApp = strictSingleApp
+        )
+    }
+
+    internal fun parseFromOrderedLines(
+        sortedLines: List<Pair<String, Rect?>>,
+        bitmap: Bitmap?,
+        screenWidth: Int,
+        screenHeight: Int,
+        rejectHints: List<String>,
+        strictSingleApp: Boolean = false
+    ): ParsedRideOffer {
+        val normalizedRejectHints = rejectHints.map { TextNormalizer.normalize(it) }
 
         val texts = mutableListOf<String>()
         var hasAcceptButton = false
@@ -131,23 +195,29 @@ object RideOfferParser {
         var ocrAcceptCenter: Pair<Float, Float>? = null
         var ocrContinueCenter: Pair<Float, Float>? = null
         var continueDetected = false
+        var hasPreFilteredUberBanner = false
 
-        for (lineObj in sortedLines) {
-            val raw = lineObj.text.trim()
+        for ((rawText, box) in sortedLines) {
+            val raw = rawText.trim()
             if (raw.isEmpty()) continue
 
             val norm = TextNormalizer.normalize(raw)
+            if ((box == null || box.top >= screenHeight * 0.30f) &&
+                (uberEstBannerRegex.containsMatchIn(norm) || uberRatingWithCountRegex.containsMatchIn(raw))
+            ) {
+                hasPreFilteredUberBanner = true
+            }
             if (raw.contains("✔") ||
                 raw.contains("✘") ||
                 norm.contains("/km") ||
+                norm.contains("xrecorder") ||
+                norm.contains("gravado por") ||
                 ownOverlayMarkers.any { norm.contains(it) } ||
                 norm == "on" ||
                 norm == "pausa"
             ) {
                 continue
             }
-
-            val box = lineObj.boundingBox
 
             // 1. Detecta se existe a caixa preta de navegacao GPS no topo (ex: "289 m", "43 m")
             if (box != null && box.top < screenHeight * 0.22f && navBannerDistRegex.matches(norm)) {
@@ -185,7 +255,7 @@ object RideOfferParser {
             }
 
             if (acceptHints.any { norm == it || norm.startsWith("aceitar") } && !norm.contains("continuar")) {
-                if (box == null || box.top > screenHeight * 0.72f) {
+                if (box == null || box.top > screenHeight * 0.68f) {
                     hasAcceptButton = true
                     if (box != null && ocrAcceptCenter == null) {
                         ocrAcceptCenter = box.exactCenterX() to box.exactCenterY()
@@ -214,6 +284,8 @@ object RideOfferParser {
             hasPriceOrDistance = hasPriceOrDistance,
             continueDetected = continueDetected,
             hasNaoAfetaTa = hasNaoAfetaTa,
+            hasPreFilteredUberBanner = hasPreFilteredUberBanner,
+            strictSingleApp = strictSingleApp,
             normalizedRejectHints = normalizedRejectHints,
             rejectNode = null,
             rejectTapPoint = primaryRejectTap,
@@ -246,6 +318,9 @@ object RideOfferParser {
         var midCircleY = h * 0.378f
         var isGpsNavTopBar = hasTopNavText
 
+        var topCircleFound: Pair<Float, Float>? = null
+        var midCircleFound: Pair<Float, Float>? = null
+
         if (bitmap != null && !bitmap.isRecycled && bitmap.width == w && bitmap.height == h) {
             // 1. Verifica se o topo da tela (x: 10%..45%, y: 5%..11%) tem a placa preta do GPS
             var darkTopPixels = 0
@@ -273,45 +348,123 @@ object RideOfferParser {
                 isGpsNavTopBar = ratio > 0.45f || hasTopNavText
             }
 
-            // 2. Se NAO ha placa preta do GPS no topo, localiza o centro exato do botao escuro X no canto superior direito
+            // 2. Se NAO ha placa preta do GPS no topo, procura o circulo escuro X no canto superior direito
             if (!isGpsNavTopBar) {
-                findDarkButtonCentroid(
-                    bitmap = bitmap,
-                    xMin = (w * 0.87f).toInt(),
-                    xMax = (w * 0.975f).toInt(),
-                    yMin = (h * 0.038f).toInt(),
-                    yMax = (h * 0.092f).toInt()
-                )?.let { (cx, cy) ->
-                    topCircleX = cx
-                    topCircleY = cy
-                }
-            } else {
-                // 3. Com placa preta do GPS no topo, localiza o centro do botao escuro na regiao acima do card (y: 34%..41%)
-                findDarkButtonCentroid(
+                topCircleFound = findDarkButtonCentroid(
                     bitmap = bitmap,
                     xMin = (w * 0.86f).toInt(),
                     xMax = (w * 0.975f).toInt(),
-                    yMin = (h * 0.34f).toInt(),
-                    yMax = (h * 0.41f).toInt()
-                )?.let { (cx, cy) ->
-                    midCircleX = cx
-                    midCircleY = cy
+                    yMin = (h * 0.035f).toInt(),
+                    yMax = (h * 0.095f).toInt()
+                )
+                if (topCircleFound != null) {
+                    topCircleX = topCircleFound.first
+                    topCircleY = topCircleFound.second
+                }
+            }
+
+            // 3. Se ha placa GPS OU se o X do topo nao foi encontrado (card popup com altura variavel por endereco),
+            // detecta a borda superior real do card escuro da 99 e procura o botao X / pilula logo acima dele (28%..50%)!
+            if (isGpsNavTopBar || naoAfetaBox != null || topCircleFound == null) {
+                val detectedCardTop = findNineNineDarkCardTopEdge(bitmap, w, h)
+                val bandMinY = if (detectedCardTop != null) {
+                    (detectedCardTop - h * 0.085f).coerceIn(h * 0.25f, h * 0.48f).toInt()
+                } else {
+                    (h * 0.29f).toInt()
+                }
+                val bandMaxY = if (detectedCardTop != null) {
+                    (detectedCardTop - h * 0.004f).coerceIn(h * 0.28f, h * 0.52f).toInt()
+                } else {
+                    (h * 0.48f).toInt()
+                }
+                midCircleFound = findDarkButtonCentroid(
+                    bitmap = bitmap,
+                    xMin = (w * 0.84f).toInt(),
+                    xMax = (w * 0.975f).toInt(),
+                    yMin = bandMinY,
+                    yMax = bandMaxY
+                ) ?: findDarkButtonCentroid(
+                    bitmap = bitmap,
+                    xMin = (w * 0.85f).toInt(),
+                    xMax = (w * 0.975f).toInt(),
+                    yMin = (h * 0.28f).toInt(),
+                    yMax = (h * 0.49f).toInt()
+                )
+                if (midCircleFound != null) {
+                    midCircleX = midCircleFound.first
+                    midCircleY = midCircleFound.second
+                } else if (detectedCardTop != null) {
+                    midCircleY = (detectedCardTop - h * 0.030f).coerceIn(h * 0.29f, h * 0.47f)
                 }
             }
         }
 
-        // Se o OCR leu diretamente "Nao afeta a TA", usa a altura Y exata da pilula, mas SEMPRE na direita (x ~ 91.5%)
-        // onde tanto a pilula expandida (57%..97%) quanto o botao circular X (88%..96%) ficam, longe do botao de saldo!
+        // Se o OCR leu diretamente "Nao afeta a TA", usa a altura Y exata da pilula, sempre na direita segura
         if (naoAfetaBox != null) {
             val exactY = naoAfetaBox.exactCenterY()
             val safeRightX = if (exactY > h * 0.20f) midCircleX else topCircleX
             return listOf(safeRightX to exactY)
         }
 
-        return if (!isGpsNavTopBar) {
-            listOf(topCircleX to topCircleY)
-        } else {
-            listOf(midCircleX to midCircleY)
+        if (!isGpsNavTopBar) {
+            if (topCircleFound != null) {
+                return listOf(topCircleX to topCircleY)
+            }
+            if (midCircleFound != null) {
+                return listOf(midCircleX to midCircleY)
+            }
+            return listOf(topCircleX to topCircleY)
+        }
+
+        return listOf(midCircleX to midCircleY)
+    }
+
+    /**
+     * Detecta dinamicamente a borda superior do card escuro da 99 (#242830..#3A3F4A),
+     * que sobe/desce conforme a quantidade de linhas do endereco (ex: 58407 vs 58409).
+     */
+    private fun findNineNineDarkCardTopEdge(bitmap: Bitmap, w: Int, h: Int): Float? {
+        return try {
+            val sampleXs = listOf(0.18f, 0.25f, 0.32f, 0.40f).map { (w * it).toInt().coerceIn(0, w - 1) }
+            val startY = (h * 0.54f).toInt().coerceIn(0, h - 1)
+            val endY = (h * 0.26f).toInt().coerceIn(0, h - 1)
+            if (startY <= endY) return null
+
+            fun isNineNineDarkCard(c: Int): Boolean {
+                val r = Color.red(c)
+                val g = Color.green(c)
+                val b = Color.blue(c)
+                val maxC = maxOf(r, g, b)
+                val minC = minOf(r, g, b)
+                return r in 26..75 && g in 28..80 && b in 34..90 && (maxC - minC) <= 24
+            }
+
+            // Confirma que a amostra inferior esta dentro do card escuro da 99
+            val insideDarkCount = sampleXs.count { x -> isNineNineDarkCard(bitmap.getPixel(x, startY)) }
+            if (insideDarkCount < 3) return null
+
+            var y = startY
+            while (y >= endY) {
+                val nonDarkCount = sampleXs.count { x ->
+                    val c = bitmap.getPixel(x, y)
+                    val brightness = (Color.red(c) + Color.green(c) + Color.blue(c)) / 3
+                    brightness >= 115 || !isNineNineDarkCard(c)
+                }
+                if (nonDarkCount >= 3) {
+                    val verifyAbove = (y - (h * 0.012f).toInt()).coerceAtLeast(endY)
+                    val stillNonDark = sampleXs.count { x ->
+                        val c = bitmap.getPixel(x, verifyAbove)
+                        (Color.red(c) + Color.green(c) + Color.blue(c)) / 3 >= 115 || !isNineNineDarkCard(c)
+                    }
+                    if (stillNonDark >= 3) {
+                        return y.toFloat()
+                    }
+                }
+                y -= 4
+            }
+            null
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -432,6 +585,8 @@ object RideOfferParser {
             hasPriceOrDistance = hasPriceOrDistance,
             continueDetected = continueDetected,
             hasNaoAfetaTa = false,
+            hasPreFilteredUberBanner = false,
+            strictSingleApp = false,
             normalizedRejectHints = normalizedRejectHints,
             rejectNode = rejectCandidate,
             rejectTapPoint = null,
@@ -450,6 +605,8 @@ object RideOfferParser {
         hasPriceOrDistance: Boolean,
         continueDetected: Boolean,
         hasNaoAfetaTa: Boolean,
+        hasPreFilteredUberBanner: Boolean,
+        strictSingleApp: Boolean,
         normalizedRejectHints: List<String>,
         rejectNode: AccessibilityNodeInfo?,
         rejectTapPoint: Pair<Float, Float>?,
@@ -471,7 +628,8 @@ object RideOfferParser {
 
         val (rating, isNewPassenger) = extractPassengerRating(texts)
         val rawCardHourlyRate = extractHourlyRate(texts)
-        val ridePrice = extractMainRidePrice(texts)
+        val rawPrice = extractMainRidePriceInfo(texts)
+        val initialPrice = rawPrice?.first
 
         // KM Total = KM de Buscar (pickupDistKm) + KM de Levar (dropoffDistKm)
         val totalDistKm = if (pickupDistKm != null && dropoffDistKm != null) {
@@ -480,22 +638,63 @@ object RideOfferParser {
             dropoffDistKm ?: pickupDistKm
         }
 
+        // Calculo Real de R$/h com piso fisico minimo por KM (evita "8 min para 12 km" ou R$/h < 8 lido errado)
+        val waitMinutes = 2.0
+        val sanitizedRawHourly = rawCardHourlyRate?.takeIf { it in 10.0..250.0 }
+        // Descarta minutos obviamente corrompidos pelo OCR (ex: "2 min" lido como "200 min" para 1,6 km -> R$2/h)
+        val validPickupMin = pickupMinutes?.takeIf { mins ->
+            val maxReasonable = kotlin.math.max(35.0, (pickupDistKm ?: 2.0) * 12.0)
+            mins in 0.5..maxReasonable
+        }
+        val validDropoffMin = dropoffMinutes?.takeIf { mins ->
+            val maxReasonable = kotlin.math.max(70.0, (dropoffDistKm ?: 4.0) * 12.0)
+            mins in 0.5..maxReasonable
+        }
+        val effPickupMin = when {
+            validPickupMin != null && pickupDistKm != null -> kotlin.math.max(validPickupMin, pickupDistKm * 1.4)
+            validPickupMin != null -> validPickupMin
+            pickupDistKm != null && sanitizedRawHourly == null -> pickupDistKm * 1.8
+            else -> null
+        }
+        val effDropoffMin = when {
+            validDropoffMin != null && dropoffDistKm != null -> kotlin.math.max(validDropoffMin, dropoffDistKm * 1.4)
+            validDropoffMin != null -> validDropoffMin
+            dropoffDistKm != null && sanitizedRawHourly == null -> dropoffDistKm * 1.8
+            else -> null
+        }
+
+        // Corrige R$ sem virgula quando o OCR perde o separador decimal ("R$ 5,40" -> "R$ 540")
+        val estMinutesForPriceCheck = when {
+            effPickupMin != null && effDropoffMin != null -> effPickupMin + effDropoffMin + waitMinutes
+            totalDistKm != null && totalDistKm > 0.2 -> totalDistKm * 2.2 + waitMinutes
+            else -> null
+        }
+        val expectedPrice = if (sanitizedRawHourly != null && estMinutesForPriceCheck != null) {
+            sanitizedRawHourly * (estMinutesForPriceCheck / 60.0)
+        } else {
+            null
+        }
+        val ridePrice = recoverMissingDecimalPrice(
+            rawValue = initialPrice,
+            hasDecimal = rawPrice?.second ?: true,
+            totalDistKm = totalDistKm,
+            expectedPrice = expectedPrice
+        )
+
         val pricePerKm = if (ridePrice != null && totalDistKm != null && totalDistKm > 0.1) {
             ridePrice / totalDistKm
         } else {
             null
         }
 
-        // Calculo Real de R$/h = Valor / ((Tempo de Buscar + Tempo de Levar + 2 min de espera do passageiro) / 60)
-        val waitMinutes = 2.0
         val hourlyRate = if (ridePrice != null && ridePrice > 0.0) {
             when {
-                pickupMinutes != null && dropoffMinutes != null && (pickupMinutes + dropoffMinutes) > 0.0 -> {
-                    val totalMinWithWait = pickupMinutes + dropoffMinutes + waitMinutes
+                effPickupMin != null && effDropoffMin != null && (effPickupMin + effDropoffMin) > 0.0 -> {
+                    val totalMinWithWait = effPickupMin + effDropoffMin + waitMinutes
                     (ridePrice / totalMinWithWait) * 60.0
                 }
-                rawCardHourlyRate != null && rawCardHourlyRate > 0.0 -> {
-                    val baseMin = (ridePrice / rawCardHourlyRate) * 60.0
+                sanitizedRawHourly != null -> {
+                    val baseMin = (ridePrice / sanitizedRawHourly) * 60.0
                     val totalMinWithWait = baseMin + waitMinutes
                     (ridePrice / totalMinWithWait) * 60.0
                 }
@@ -504,18 +703,47 @@ object RideOfferParser {
                     val totalMinWithWait = estDrivingMin + waitMinutes
                     (ridePrice / totalMinWithWait) * 60.0
                 }
-                else -> rawCardHourlyRate
+                else -> sanitizedRawHourly
             }
         } else {
-            rawCardHourlyRate
+            sanitizedRawHourly
         }
 
         val normAll = texts.map { TextNormalizer.normalize(it) }
-        val isTripRadarList = normAll.any { it.contains("escolha uma") || it.contains("99 abastece") }
+        val isTripRadarList = normAll.any {
+            it == "escolher" || it.contains("escolha uma") || it.contains("99 abastece")
+        }
+        val hasStrongNineNineEvidence = normAll.any {
+            it == "escolher" ||
+                it.contains("100% dos ganhos") ||
+                it.contains("nao afeta a ta") ||
+                it.contains("taxa99") ||
+                it.contains("taxa 99") ||
+                it.contains("/hora") ||
+                it.contains("tarifa base dinamica") ||
+                it.contains("perfil essencial") ||
+                it.contains("cpf e cartao") ||
+                nineNineLegCountRegex.containsMatchIn(it)
+        }
+        val hasExclusivoBadge = normAll.any { it == "exclusivo" }
+        val hasVerificadoBadge = normAll.any { it == "verificado" }
+        val hasUberExclusiveMarker = !hasStrongNineNineEvidence &&
+            (hasPreFilteredUberBanner ||
+                normAll.any { line ->
+                    uberEstBannerRegex.containsMatchIn(line) || line == "tenho interesse"
+                } || (!strictSingleApp && hasExclusivoBadge && hasVerificadoBadge))
         val hasRealCardEvidence = (pickup != null && dropoff != null) ||
-            (rawCardHourlyRate != null && ridePrice != null) ||
-            (hasNaoAfetaTa && ridePrice != null)
-        val isOffer = hasAcceptButton && hasRealCardEvidence && !isTripRadarList && hasPriceOrDistance
+            (sanitizedRawHourly != null && ridePrice != null && pickup != null)
+        val hasAcceptedOrActiveBanner = normAll.any {
+            it.contains("corrida aceita") || it.contains("cheguei no embarque") ||
+                it.contains("finalizar corrida") || it.contains("iniciar corrida")
+        }
+        val isOffer = !hasAcceptedOrActiveBanner &&
+            hasAcceptButton &&
+            hasRealCardEvidence &&
+            !isTripRadarList &&
+            !hasUberExclusiveMarker &&
+            hasPriceOrDistance
 
         val isRatingScreen = !isOffer && !continueDetected && normAll.any { line ->
             ratingScreenHints.any { hint -> line.contains(hint) }
@@ -526,9 +754,20 @@ object RideOfferParser {
             null
         }
 
-        val isInActiveRide = !isOffer && !continueDetected && !isRatingScreen && normAll.any { line ->
+        val isCancelledScreen = !isOffer && !continueDetected && normAll.any { line ->
+            cancelledHints.any { hint -> line.contains(hint) }
+        }
+
+        val isInActiveRide = !isOffer && !continueDetected && !isRatingScreen && !isCancelledScreen && normAll.any { line ->
             activeRideHints.any { hint -> line.contains(hint) }
         }
+
+        val isIdleHomeScreen = !isOffer &&
+            !continueDetected &&
+            !isRatingScreen &&
+            !isCancelledScreen &&
+            !isInActiveRide &&
+            normAll.any { line -> nineNineIdleHomeHints.any { hint -> line.contains(hint) } }
 
         val addressCandidates = buildList {
             if (!dropoff.isNullOrBlank()) add(dropoff)
@@ -583,7 +822,9 @@ object RideOfferParser {
             acceptTapPoint = acceptTapPoint,
             continueNode = continueNode,
             continueTapPoint = continueTapPoint,
-            fingerprint = fingerprint
+            fingerprint = fingerprint,
+            isCancelledScreen = isCancelledScreen,
+            isIdleHomeScreen = isIdleHomeScreen
         )
     }
 
@@ -600,14 +841,48 @@ object RideOfferParser {
         return null
     }
 
-    private fun extractMainRidePrice(texts: List<String>): Double? {
+    private val decimalPartRegex = Regex("""[.,]\d{1,2}\b""")
+
+    /**
+     * Recupera o separador decimal perdido pelo OCR em valores grandes sem virgula/ponto
+     * (ex: "R$ 750" quando Est. R$3,41/km * 2,2km = R$7,50; ou "R$ 540" quando 2,1km = R$5,40).
+     */
+    internal fun recoverMissingDecimalPrice(
+        rawValue: Double?,
+        hasDecimal: Boolean,
+        totalDistKm: Double?,
+        expectedPrice: Double?
+    ): Double? {
+        val price = rawValue ?: return null
+        if (hasDecimal || price < 100.0) return price
+        val divided = kotlin.math.round((price / 100.0) * 100.0) / 100.0
+        if (expectedPrice != null && expectedPrice > 1.0) {
+            if (price > expectedPrice * 4.5 && divided in (expectedPrice * 0.45)..(expectedPrice * 2.2)) {
+                return divided
+            }
+        }
+        if (totalDistKm != null && totalDistKm > 0.2) {
+            val rawPerKm = price / totalDistKm
+            val divPerKm = divided / totalDistKm
+            if (rawPerKm > 30.0 && divPerKm in 0.45..15.0) {
+                return divided
+            }
+        }
+        return price
+    }
+
+    private fun extractMainRidePriceInfo(texts: List<String>): Pair<Double, Boolean>? {
         for (line in texts) {
             val norm = TextNormalizer.normalize(line)
-            if (norm.contains("/h") || norm.contains("tarifa") || norm.contains("taxa")) continue
+            if (norm.contains("/h") || norm.contains("tarifa") || norm.contains("taxa") ||
+                norm.contains("liq") || norm.contains("lucro") || line.contains("•") || line.contains("★")
+            ) {
+                continue
+            }
             val match = currencyRegex.find(line) ?: continue
             val valNum = match.groupValues[2].replace(",", ".").toDoubleOrNull()
             if (valNum != null && valNum >= 3.0) {
-                return valNum
+                return valNum to decimalPartRegex.containsMatchIn(match.groupValues[2])
             }
         }
         return null
@@ -617,7 +892,7 @@ object RideOfferParser {
         for (line in texts) {
             val match = hourlyRateRegex.find(line) ?: continue
             val value = match.groupValues[2].replace(",", ".").toDoubleOrNull()
-            if (value != null && value > 0.0) {
+            if (value != null && value in 10.0..250.0) {
                 return value
             }
         }
@@ -657,8 +932,27 @@ object RideOfferParser {
         val hasRiskBadge: Boolean
     )
 
+    private fun normalizeLegOcrNoise(raw: String): String {
+        var s = raw.trim()
+        s = s.replace(Regex("""(\d)\s*([.,])\s*(\d)"""), "$1$2$3")
+        s = s.replace(Regex("""\b([0-9Il|!]{1,3})\s*(min(?:uto[s]?)?)""", RegexOption.IGNORE_CASE)) { m ->
+            val rawNum = m.groupValues[1]
+            if (rawNum.any { it.isDigit() } || rawNum.all { it in "Il|!" }) {
+                val digits = rawNum.replace(Regex("""[Il|!]"""), "1")
+                "$digits ${m.groupValues[2]}"
+            } else {
+                m.value
+            }
+        }
+        s = s.replace(Regex("""\(\s*([0-9Il|!]+(?:[.,][0-9Il|!]+)?)\s*(km|m)\s*\)""", RegexOption.IGNORE_CASE)) { m ->
+            val fixedNum = m.groupValues[1].replace(Regex("""[Il|!]"""), "1")
+            "($fixedNum ${m.groupValues[2]})"
+        }
+        return s
+    }
+
     private fun extractLegsInfo(texts: List<String>): LegsExtractResult {
-        val legAddresses = mutableListOf<String>()
+        val legAddresses = mutableListOf<String?>()
         val legDistances = mutableListOf<Double?>()
         val legMinutes = mutableListOf<Double?>()
         var hasRiskBadge = false
@@ -669,9 +963,24 @@ object RideOfferParser {
             }
         }
 
+        // Combina cabecalhos quebrados pelo OCR ("2 min" seguido de "(584 m)")
+        val normalizedTexts = mutableListOf<String>()
+        var idx = 0
+        while (idx < texts.size) {
+            val cur = normalizeLegOcrNoise(texts[idx])
+            val next = if (idx + 1 < texts.size) normalizeLegOcrNoise(texts[idx + 1]) else null
+            if (minutesOnlyRegex.matches(cur) && next != null && distanceOnlyRegex.matches(next)) {
+                normalizedTexts.add("$cur $next")
+                idx += 2
+            } else {
+                normalizedTexts.add(cur)
+                idx++
+            }
+        }
+
         var i = 0
-        while (i < texts.size - 1) {
-            val line = texts[i].trim()
+        while (i < normalizedTexts.size) {
+            val line = normalizedTexts[i].trim()
             if (tripLegHeaderRegex.matches(line)) {
                 var parsedDist: Double? = null
                 val distMatch = legDistRegex.find(line)
@@ -690,11 +999,15 @@ object RideOfferParser {
 
                 val addrParts = mutableListOf<String>()
                 var j = i + 1
-                while (j < texts.size && addrParts.size < 2) {
-                    val rawCandidate = texts[j].trim()
+                while (j < normalizedTexts.size && addrParts.size < 3) {
+                    val rawCandidate = normalizedTexts[j].trim()
                     val norm = TextNormalizer.normalize(rawCandidate)
                     if (tripLegHeaderRegex.matches(rawCandidate) ||
-                        acceptHints.any { norm == it || norm.startsWith("aceitar") }
+                        acceptHints.any { norm == it || norm.startsWith("aceitar") } ||
+                        norm.contains("taxa99") ||
+                        norm.contains("taxa 99") ||
+                        norm.contains("perfil essencial") ||
+                        norm.contains("cpf e cartao")
                     ) {
                         break
                     }
@@ -704,9 +1017,7 @@ object RideOfferParser {
                     }
                     j++
                 }
-                if (addrParts.isNotEmpty()) {
-                    legAddresses.add(addrParts.joinToString(" "))
-                }
+                legAddresses.add(if (addrParts.isNotEmpty()) addrParts.joinToString(" ") else null)
                 i = j
             } else {
                 i++

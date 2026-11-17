@@ -10,3 +10,6 @@ local.properties
 *.dex
 *.class
 *.mp4
+_fontes_espelho/
+build_log.txt
+_backup_visual_anterior/

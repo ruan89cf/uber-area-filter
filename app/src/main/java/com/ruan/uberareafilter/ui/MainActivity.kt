@@ -1,10 +1,13 @@
 package com.ruan.uberareafilter.ui
 
+import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -14,27 +17,38 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputType
+import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.widget.Button
+import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.ruan.uberareafilter.adb.AdbPairingReceiver
+import com.ruan.uberareafilter.adb.StandaloneAdbBridge
 import com.ruan.uberareafilter.databinding.ActivityMainBinding
 import com.ruan.uberareafilter.engine.AreaEvaluator
 import com.ruan.uberareafilter.engine.FuelCalculator
 import com.ruan.uberareafilter.overlay.OverlayManager
 import com.ruan.uberareafilter.overlay.RideCardModel
+import com.ruan.uberareafilter.model.DualConflictPolicy
 import com.ruan.uberareafilter.model.FavoriteRideItem
 import com.ruan.uberareafilter.model.FilterConfig
 import com.ruan.uberareafilter.model.MapZone
 import com.ruan.uberareafilter.model.RideHistoryItem
 import com.ruan.uberareafilter.model.ZoneMode
 import com.ruan.uberareafilter.service.UberAccessibilityService
+import com.ruan.uberareafilter.shizuku.ShizukuTapBridge
 import com.ruan.uberareafilter.storage.ConfigRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -79,15 +93,23 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         ConfigRepository.ensureDiskLogsLoaded(this)
+        ShizukuTapBridge.init(this) {
+            runOnUiThread { updatePermissionStatus() }
+        }
         loadConfigIntoUi()
         setupListeners()
         setupVisualCustomization()
         observeLogsAndHistory()
+
+        if (WhatsNewActivity.shouldShowWhatsNew(this)) {
+            startActivity(Intent(this, WhatsNewActivity::class.java))
+        }
     }
 
     override fun onPause() {
         super.onPause()
         previewOverlay?.hideBanner()
+        StandaloneAdbBridge.stopConnectAutoMonitor()
     }
 
     private var previewOverlay: OverlayManager? = null
@@ -104,6 +126,24 @@ class MainActivity : AppCompatActivity() {
         loadConfigIntoUi()
         renderRideHistory(repository.getRideHistory())
         updatePermissionStatus()
+        maybeStartAdbAutoConnectOnResume()
+    }
+
+    private fun maybeStartAdbAutoConnectOnResume() {
+        val cfg = repository.load()
+        if (!cfg.uberModuleEnabled || !StandaloneAdbBridge.isPaired(this)) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (!StandaloneAdbBridge.isDaemonAlive(this@MainActivity)) {
+                StandaloneAdbBridge.startConnectAutoMonitor(this@MainActivity) { res ->
+                    runOnUiThread {
+                        updatePermissionStatus()
+                        if (res.outcome == StandaloneAdbBridge.ConnectOutcome.CONNECTED) {
+                            Toast.makeText(this@MainActivity, res.detail, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var isUpdatingUi = false
@@ -124,6 +164,8 @@ class MainActivity : AppCompatActivity() {
 
         binding.switchRequireBoth.isChecked = config.requireBothPickupAndDropoff
         binding.switchRequireSameZone.isChecked = config.allowInterZoneRides
+        binding.switchAutoAcceptInterZone.isChecked = config.autoAcceptInterZone
+        binding.switchAutoAcceptInterZone.isEnabled = config.allowInterZoneRides
         binding.switchYellowOutside.isChecked = config.yellowCardOutsideAreaEnabled
         binding.switchAvBrasilOdd.isChecked = config.avBrasilOddSideOnly
         binding.switchRejectRiskBadge.isChecked = config.reject99RiskAreaBadge
@@ -143,6 +185,11 @@ class MainActivity : AppCompatActivity() {
 
         binding.switchFilterHourly.isChecked = config.filterByHourlyRateEnabled
         binding.edtMinHourly.setText(config.minHourlyRate.toString())
+        binding.switchUberCustomHourly.isChecked = config.uberCustomHourlyEnabled
+        binding.edtUberMinHourly.setText(config.uberMinHourlyRate.toString())
+        binding.switchUseNetHourlyRate.isChecked = config.useNetHourlyRate
+        binding.switchRoundDownNetHourly.isChecked = config.roundDownNetHourlyRate
+        binding.switchRoundDownNetHourly.isEnabled = config.useNetHourlyRate || config.fuelCostEnabled
 
         currentFuelType = config.fuelType
         binding.switchFuelEnabled.isChecked = config.fuelCostEnabled
@@ -151,10 +198,23 @@ class MainActivity : AppCompatActivity() {
         updateFuelUiLabels(config)
 
         binding.switchDebug.isChecked = config.debugMode
+        binding.switchXrayDiagnostic.isChecked = config.xrayDiagnosticEnabled
+        binding.switchXrayDiagnostic.isEnabled = config.debugMode
+        binding.switchSaveRideScreenshots.isChecked = config.saveRideScreenshotsEnabled
+        updateRideShotsStatsUi()
 
         binding.switchModule99.isChecked = config.nineNineModuleEnabled
         binding.switchModuleUber.isChecked = config.uberModuleEnabled
+        binding.switchDualConflictGuard.isChecked = config.dualConflictGuardEnabled
+        if (config.dualConflictPolicy == DualConflictPolicy.AUTO_REJECT_OTHER_APP) {
+            binding.rbDualAutoRejectOther.isChecked = true
+        } else {
+            binding.rbDualBlockAutoAccept.isChecked = true
+        }
+        refreshDualConflictUiState()
         binding.switchRejectUberStops.isChecked = config.rejectUberMultiStopRides
+        binding.switchShowRideBanner.isChecked = config.showRideInfoBannerEnabled
+        binding.edtBannerDurationSec.setText(config.bannerAutoHideSeconds.toString())
         binding.switchDarkTheme.isChecked = config.darkThemeEnabled
         refreshVisualControls(config)
         val favCount = repository.getFavorites().size
@@ -178,6 +238,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        binding.btnWhatsNew.setOnClickListener {
+            val intent = Intent(this, WhatsNewActivity::class.java).apply {
+                putExtra(WhatsNewActivity.EXTRA_FROM_MAIN, true)
+            }
+            startActivity(intent)
+        }
+
+        binding.headerStreetLists.setOnClickListener {
+            val isVisible = binding.layoutStreetListsContent.visibility == View.VISIBLE
+            binding.layoutStreetListsContent.visibility = if (isVisible) View.GONE else View.VISIBLE
+            binding.txtStreetListsToggleArrow.text = if (isVisible) "▾" else "▴"
+        }
+
+        binding.headerVisualCustomization.setOnClickListener {
+            val isVisible = binding.layoutVisualCustomizationContent.visibility == View.VISIBLE
+            binding.layoutVisualCustomizationContent.visibility = if (isVisible) View.GONE else View.VISIBLE
+            binding.txtVisualToggleArrow.text = if (isVisible) "▾" else "▴"
+        }
+
+        binding.headerLogsDiagnostic.setOnClickListener {
+            val isVisible = binding.layoutLogsDiagnosticContent.visibility == View.VISIBLE
+            binding.layoutLogsDiagnosticContent.visibility = if (isVisible) View.GONE else View.VISIBLE
+            binding.txtLogsDiagnosticToggleArrow.text = if (isVisible) "▾" else "▴"
+        }
+
         binding.btnAccessibilitySettings.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
@@ -188,6 +273,48 @@ class MainActivity : AppCompatActivity() {
                 Uri.parse("package:$packageName")
             )
             startActivity(intent)
+        }
+
+        binding.btnStandaloneAdb.setOnClickListener {
+            handleStandaloneAdbClick()
+        }
+
+        binding.btnShizukuSettings.setOnClickListener {
+            when {
+                !ShizukuTapBridge.isInstalled(this) -> {
+                    val marketIntent = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("market://details?id=${ShizukuTapBridge.SHIZUKU_PACKAGE}")
+                    )
+                    runCatching { startActivity(marketIntent) }.onFailure {
+                        startActivity(
+                            Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("https://play.google.com/store/apps/details?id=${ShizukuTapBridge.SHIZUKU_PACKAGE}")
+                            )
+                        )
+                    }
+                }
+                !ShizukuTapBridge.isBinderAlive() -> {
+                    val launchIntent = packageManager.getLaunchIntentForPackage(ShizukuTapBridge.SHIZUKU_PACKAGE)
+                    if (launchIntent != null) {
+                        startActivity(launchIntent)
+                        Toast.makeText(
+                            this,
+                            "Toque em 'Iniciar' no Shizuku (Depuração por Wi-Fi) e volte aqui.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+                !ShizukuTapBridge.hasPermission() -> {
+                    ShizukuTapBridge.requestPermission()
+                }
+                else -> {
+                    ShizukuTapBridge.ensureBound(this)
+                    updatePermissionStatus()
+                    Toast.makeText(this, "Shizuku ativo e autorizado para a Uber!", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
 
         binding.btnOpenFavorites.setOnClickListener {
@@ -201,6 +328,31 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnSave.setOnClickListener {
             saveConfigFromUi(silent = false)
+        }
+
+        binding.btnClearRideScreenshots.setOnClickListener {
+            val (count, _) = ConfigRepository.getRideScreenshotsStats(this)
+            AlertDialog.Builder(this)
+                .setTitle("🗑️ Limpar prints salvos?")
+                .setMessage(
+                    if (count > 0) {
+                        "Apaga as $count imagem(ns) salvas no armazenamento interno privado do app."
+                    } else {
+                        "Não há prints novos na pasta privada. Deseja limpar os vínculos do histórico?"
+                    }
+                )
+                .setPositiveButton("Limpar") { _, _ ->
+                    val removed = repository.clearAllRideScreenshots()
+                    renderRideHistory(repository.getRideHistory())
+                    updateRideShotsStatsUi()
+                    Toast.makeText(
+                        this,
+                        if (removed > 0) "$removed imagem(ns) removida(s)." else "Prints limpos.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
         }
 
         binding.btnClearLogs.setOnClickListener {
@@ -229,8 +381,12 @@ class MainActivity : AppCompatActivity() {
             binding.switchHumanDelay,
             binding.switchModule99,
             binding.switchModuleUber,
+            binding.switchDualConflictGuard,
             binding.switchRejectUberStops,
+            binding.switchUberCustomHourly,
+            binding.switchShowRideBanner,
             binding.switchRequireBoth,
+            binding.switchAutoAcceptInterZone,
             binding.switchYellowOutside,
             binding.switchAvBrasilOdd,
             binding.switchRejectRiskBadge,
@@ -239,8 +395,12 @@ class MainActivity : AppCompatActivity() {
             binding.switchFilterRating,
             binding.switchRejectNewPassenger,
             binding.switchFilterHourly,
+            binding.switchUseNetHourlyRate,
+            binding.switchRoundDownNetHourly,
             binding.switchFuelEnabled,
-            binding.switchDebug
+            binding.switchSaveRideScreenshots,
+            binding.switchDebug,
+            binding.switchXrayDiagnostic
         )
         allSwitches.forEach { sw ->
             sw.setOnCheckedChangeListener { _, _ ->
@@ -248,8 +408,22 @@ class MainActivity : AppCompatActivity() {
                     if (sw == binding.switchFilterTotalDist && binding.switchFilterTotalDist.isChecked) {
                         if (!validateInterZoneDistanceOrWarn()) return@setOnCheckedChangeListener
                     }
+                    binding.switchRoundDownNetHourly.isEnabled =
+                        binding.switchUseNetHourlyRate.isChecked || binding.switchFuelEnabled.isChecked
+                    if (sw == binding.switchModule99 ||
+                        sw == binding.switchModuleUber ||
+                        sw == binding.switchDualConflictGuard
+                    ) {
+                        refreshDualConflictUiState()
+                    }
+                    if (sw == binding.switchDebug) {
+                        binding.switchXrayDiagnostic.isEnabled = binding.switchDebug.isChecked
+                    }
                     saveConfigFromUi(silent = true)
-                    if (sw == binding.switchFuelEnabled) {
+                    if (sw == binding.switchFuelEnabled ||
+                        sw == binding.switchUseNetHourlyRate ||
+                        sw == binding.switchRoundDownNetHourly
+                    ) {
                         updateFuelUiLabels(repository.load())
                     }
                 }
@@ -273,12 +447,29 @@ class MainActivity : AppCompatActivity() {
 
         binding.switchRequireSameZone.setOnCheckedChangeListener { _, isChecked ->
             if (!isUpdatingUi) {
+                binding.switchAutoAcceptInterZone.isEnabled = isChecked
                 if (isChecked && !validateInterZoneDistanceOrWarn()) {
+                    binding.switchAutoAcceptInterZone.isEnabled = false
                     return@setOnCheckedChangeListener
                 }
                 saveConfigFromUi(silent = true)
             }
         }
+
+        binding.rgDualConflictPolicy.setOnCheckedChangeListener { _, _ ->
+            if (!isUpdatingUi) {
+                saveConfigFromUi(silent = true)
+            }
+        }
+    }
+
+    private fun refreshDualConflictUiState() {
+        val dualActive = binding.switchModule99.isChecked && binding.switchModuleUber.isChecked
+        binding.switchDualConflictGuard.isEnabled = dualActive
+        val policyEnabled = dualActive && binding.switchDualConflictGuard.isChecked
+        binding.rbDualBlockAutoAccept.isEnabled = policyEnabled
+        binding.rbDualAutoRejectOther.isEnabled = policyEnabled
+        binding.txtDualConflictHint.alpha = if (dualActive) 1.0f else 0.5f
     }
 
     /**
@@ -344,8 +535,10 @@ class MainActivity : AppCompatActivity() {
         val maxPickupKm = binding.edtMaxPickupDist.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 2.5
         val minRating = binding.edtMinRating.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 4.80
         val minHourly = binding.edtMinHourly.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 30.0
+        val uberMinHourly = binding.edtUberMinHourly.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: minHourly
         val fuelPrice = binding.edtFuelPrice.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 6.29
         val kmPerUnit = binding.edtKmPerUnit.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 35.0
+        val bannerDurationSec = (binding.edtBannerDurationSec.text?.toString()?.toIntOrNull() ?: 5).coerceIn(1, 30)
 
         val config = repository.load().copy(
             isEnabled = binding.switchEnabled.isChecked,
@@ -357,10 +550,17 @@ class MainActivity : AppCompatActivity() {
             humanDelayEnabled = binding.switchHumanDelay.isChecked,
             nineNineModuleEnabled = binding.switchModule99.isChecked,
             uberModuleEnabled = binding.switchModuleUber.isChecked,
+            dualConflictGuardEnabled = binding.switchDualConflictGuard.isChecked,
+            dualConflictPolicy = if (binding.rbDualAutoRejectOther.isChecked) {
+                DualConflictPolicy.AUTO_REJECT_OTHER_APP
+            } else {
+                DualConflictPolicy.BLOCK_AUTO_ACCEPT_ONLY
+            },
             rejectUberMultiStopRides = binding.switchRejectUberStops.isChecked,
             batterySaverInRide = false,
             requireBothPickupAndDropoff = binding.switchRequireBoth.isChecked,
             allowInterZoneRides = binding.switchRequireSameZone.isChecked,
+            autoAcceptInterZone = binding.switchAutoAcceptInterZone.isChecked,
             yellowCardOutsideAreaEnabled = binding.switchYellowOutside.isChecked,
             avBrasilOddSideOnly = binding.switchAvBrasilOdd.isChecked,
             reject99RiskAreaBadge = binding.switchRejectRiskBadge.isChecked,
@@ -377,11 +577,19 @@ class MainActivity : AppCompatActivity() {
             rejectNewPassenger = binding.switchRejectNewPassenger.isChecked,
             filterByHourlyRateEnabled = binding.switchFilterHourly.isChecked,
             minHourlyRate = minHourly,
+            uberCustomHourlyEnabled = binding.switchUberCustomHourly.isChecked,
+            uberMinHourlyRate = uberMinHourly,
+            useNetHourlyRate = binding.switchUseNetHourlyRate.isChecked,
+            roundDownNetHourlyRate = binding.switchRoundDownNetHourly.isChecked,
+            showRideInfoBannerEnabled = binding.switchShowRideBanner.isChecked,
+            bannerAutoHideSeconds = bannerDurationSec,
             fuelCostEnabled = binding.switchFuelEnabled.isChecked,
             fuelType = currentFuelType,
             fuelPricePerUnit = fuelPrice,
             kmPerUnit = kmPerUnit,
-            debugMode = binding.switchDebug.isChecked
+            debugMode = binding.switchDebug.isChecked,
+            xrayDiagnosticEnabled = binding.switchXrayDiagnostic.isChecked,
+            saveRideScreenshotsEnabled = binding.switchSaveRideScreenshots.isChecked
         )
 
         repository.save(config)
@@ -392,13 +600,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateRideShotsStatsUi() {
+        val (count, totalBytes) = ConfigRepository.getRideScreenshotsStats(this)
+        val sizeText = when {
+            totalBytes >= 1024L * 1024L -> String.format(Locale("pt", "BR"), "%.1f MB", totalBytes / (1024f * 1024f))
+            totalBytes >= 1024L -> "${totalBytes / 1024L} KB"
+            else -> "$totalBytes B"
+        }
+        binding.txtRideShotsInfo.text = if (count > 0) {
+            "📸 $count print(s) salvo(s) ($sizeText) • privado"
+        } else {
+            "0 prints salvos (armazenamento privado)"
+        }
+        binding.btnClearRideScreenshots.isEnabled = count > 0 ||
+            repository.getRideHistory().any { it.screenshotPath.isNotBlank() }
+    }
+
     private fun renderRideHistory(items: List<RideHistoryItem>) {
+        updateRideShotsStatsUi()
         val container = binding.historyContainer
         container.removeAllViews()
 
         if (items.isEmpty()) {
             val emptyView = TextView(this).apply {
-                text = "Nenhuma corrida lida ainda. Assim que tocarem corridas na 99, elas aparecerão aqui com botões rápidos."
+                text = "Nenhuma corrida lida ainda. Assim que tocarem corridas na 99 ou Uber, elas aparecerão aqui com botões rápidos."
                 textSize = 12f
                 setTextColor(Color.GRAY)
             }
@@ -406,7 +631,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        items.take(8).forEach { item ->
+        items.take(15).forEach { item ->
+            val shotFile = item.screenshotPath
+                .takeIf { it.isNotBlank() }
+                ?.let { File(it) }
+                ?.takeIf { it.exists() }
+
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(12), dp(10), dp(12), dp(10))
@@ -426,6 +656,10 @@ class MainActivity : AppCompatActivity() {
                     bottomMargin = dp(8)
                 }
                 layoutParams = lp
+                isClickable = true
+                setOnClickListener {
+                    showRideScreenshotDialog(item, shotFile)
+                }
             }
 
             val statusIcon = if (item.isInsideArea) "✅" else "⚠️"
@@ -444,7 +678,19 @@ class MainActivity : AppCompatActivity() {
                 text = "🟢 Emb: ${item.pickupAddress.ifEmpty { "N/A" }}\n🏁 Dest: ${item.dropoffAddress.ifEmpty { "N/A" }}\n📋 ${item.reason}"
                 setTextColor(Color.parseColor("#CCCCCC"))
                 textSize = 12f
-                setPadding(0, dp(4), 0, dp(6))
+                setPadding(0, dp(4), 0, dp(4))
+            }
+
+            val shotBadge = TextView(this).apply {
+                if (shotFile != null) {
+                    text = "📸 Toque no card para ver o print da corrida"
+                    setTextColor(Color.parseColor("#93C5FD"))
+                } else {
+                    text = "📷 Sem print salvo para esta corrida"
+                    setTextColor(Color.parseColor("#757575"))
+                }
+                textSize = 11.5f
+                setPadding(0, 0, 0, dp(6))
             }
 
             val actionsRow = LinearLayout(this).apply {
@@ -488,9 +734,74 @@ class MainActivity : AppCompatActivity() {
 
             card.addView(header)
             card.addView(route)
+            card.addView(shotBadge)
             card.addView(actionsRow)
             container.addView(card)
         }
+    }
+
+    private fun showRideScreenshotDialog(item: RideHistoryItem, shotFile: File?) {
+        if (shotFile == null || !shotFile.exists()) {
+            Toast.makeText(
+                this,
+                "Sem print salvo para esta corrida (verifique se a captura está ativada).",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        val bitmap = BitmapFactory.decodeFile(shotFile.absolutePath)
+        if (bitmap == null) {
+            Toast.makeText(this, "Não foi possível abrir o arquivo da imagem.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+
+        val infoView = TextView(this).apply {
+            val metrics = listOf(item.priceText, item.pricePerKmText, item.hourlyRateText)
+                .filter { it.isNotBlank() }
+                .joinToString(" • ")
+            text = buildString {
+                append("⏰ ${item.timeFormatted}")
+                if (metrics.isNotEmpty()) append(" • $metrics")
+                append("\n🟢 ${item.pickupAddress.ifBlank { "N/A" }}")
+                append("\n🏁 ${item.dropoffAddress.ifBlank { "N/A" }}")
+                append("\n📋 ${item.reason}")
+            }
+            textSize = 12f
+            setPadding(0, 0, 0, dp(8))
+        }
+
+        val imageView = ImageView(this).apply {
+            setImageBitmap(bitmap)
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        wrapper.addView(infoView)
+        wrapper.addView(imageView)
+
+        val scroll = ScrollView(this).apply {
+            addView(wrapper)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("📸 Print ao aparecer a corrida")
+            .setView(scroll)
+            .setPositiveButton("Fechar", null)
+            .setOnDismissListener {
+                if (!bitmap.isRecycled) {
+                    bitmap.recycle()
+                }
+            }
+            .show()
     }
 
     private fun promptPickAddressForList(item: RideHistoryItem, isAllow: Boolean) {
@@ -583,7 +894,244 @@ class MainActivity : AppCompatActivity() {
         val overlayOk = Settings.canDrawOverlays(this)
         val accText = if (accessibilityOk) "OK" else "DESATIVADA"
         val ovText = if (overlayOk) "OK" else "DESATIVADA"
-        binding.txtPermissionsStatus.text = "Acessibilidade: $accText  |  Sobrepor Tela: $ovText"
+
+        val shizukuInstalled = ShizukuTapBridge.isInstalled(this)
+        binding.btnShizukuSettings.visibility = if (shizukuInstalled) View.VISIBLE else View.GONE
+        if (shizukuInstalled) {
+            binding.btnShizukuSettings.text = when {
+                !ShizukuTapBridge.isBinderAlive() -> "⚡ Shizuku (opcional): Abrir e Iniciar"
+                !ShizukuTapBridge.hasPermission() -> "⚡ Shizuku (opcional): Autorizar"
+                else -> "⚡ Shizuku Ativo ✅"
+            }
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val daemonAlive = StandaloneAdbBridge.isDaemonAlive(this@MainActivity)
+            val paired = StandaloneAdbBridge.isPaired(this@MainActivity)
+            val adbStatus = when {
+                daemonAlive -> "ATIVO ✅ (100% independente no 4G/5G)"
+                paired -> "Pareado (toque p/ iniciar no Wi-Fi)"
+                else -> "Não pareado (toque p/ ativar sem Shizuku)"
+            }
+            withContext(Dispatchers.Main) {
+                binding.txtPermissionsStatus.text =
+                    "Acessibilidade: $accText  |  Sobrepor Tela: $ovText\nUber Independente: $adbStatus"
+                binding.btnStandaloneAdb.text = when {
+                    daemonAlive -> "⚡ Uber Independente ATIVO ✅ (4G/5G)"
+                    paired -> "⚡ Iniciar Uber Independente (já pareado)"
+                    else -> "⚡ Ativar Uber Independente (Sem Shizuku)"
+                }
+            }
+        }
+    }
+
+    private fun handleStandaloneAdbClick() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val status = StandaloneAdbBridge.getSetupEnvironmentStatus(this@MainActivity)
+            if (status.isDaemonAlive) {
+                withContext(Dispatchers.Main) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("⚡ Uber Independente ATIVO")
+                        .setMessage(
+                            "O serviço interno já está rodando como shell.\n\n" +
+                                "• Pode desligar o Wi-Fi agora e rodar normalmente no 4G/5G.\n" +
+                                "• Se reiniciar o celular no futuro, não precisa mais digitar código: basta ligar o Wi-Fi e 'Depuração por Wi-Fi' (ou o atalho rápido 'Depuração sem fio' na barra do Android) que inicia sozinho."
+                        )
+                        .setPositiveButton("OK", null)
+                        .setNeutralButton("Desligar") { _, _ ->
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                StandaloneAdbBridge.stopDaemon(this@MainActivity)
+                                withContext(Dispatchers.Main) { updatePermissionStatus() }
+                            }
+                        }
+                        .show()
+                }
+                return@launch
+            }
+
+            if (status.isPaired && status.wifiConnected) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Já pareado! Conectando sem código...", Toast.LENGTH_SHORT).show()
+                }
+                val result = StandaloneAdbBridge.connectAndStartDaemon(this@MainActivity)
+                val updatedStatus = StandaloneAdbBridge.getSetupEnvironmentStatus(this@MainActivity)
+                withContext(Dispatchers.Main) {
+                    updatePermissionStatus()
+                    if (result.outcome == StandaloneAdbBridge.ConnectOutcome.CONNECTED) {
+                        Toast.makeText(this@MainActivity, result.detail, Toast.LENGTH_LONG).show()
+                    } else {
+                        showStandaloneAdbDialog(result.detail, updatedStatus)
+                    }
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    val hint = when {
+                        !status.wifiConnected -> "Conecte em qualquer Wi-Fi para ligar o motor (depois pode desligar o Wi-Fi)."
+                        !status.isPaired -> "Falta apenas o pareamento único da 1ª vez."
+                        else -> "Ligue 'Depuração por Wi-Fi' para iniciar automaticamente (sem código)."
+                    }
+                    showStandaloneAdbDialog(hint, status)
+                }
+            }
+        }
+    }
+
+    private fun showStandaloneAdbDialog(
+        statusDetail: String,
+        envStatus: StandaloneAdbBridge.SetupEnvironmentStatus = StandaloneAdbBridge.SetupEnvironmentStatus(
+            wifiConnected = StandaloneAdbBridge.isWifiConnected(this),
+            devOptionsEnabled = StandaloneAdbBridge.isDeveloperOptionsEnabled(this),
+            wirelessDebugPort = null,
+            isPaired = StandaloneAdbBridge.isPaired(this),
+            isDaemonAlive = false
+        )
+    ) {
+        val wifiLine = if (envStatus.wifiConnected) "✅ 1. Wi-Fi conectado" else "❌ 1. Wi-Fi desligado (conecte num Wi-Fi agora)"
+        val devLine = if (envStatus.devOptionsEnabled) "✅ 2. Opções do Desenvolvedor ativas" else "⚠️ 2. Ative 'Opções do Desenvolvedor' (toque 7x em 'Número da versão' em Sobre o telefone)"
+        val wirelessLine = if (envStatus.wirelessDebugPort != null) {
+            "✅ 3. Depuração por Wi-Fi detectada (porta ${envStatus.wirelessDebugPort})"
+        } else {
+            "⏳ 3. Ligue a chave 'Depuração por Wi-Fi'"
+        }
+        val pairLine = if (envStatus.isPaired) {
+            "✅ 4. Pareamento único concluído (NÃO precisa mais de código!)"
+        } else {
+            "🔑 4. Parear código de 6 dígitos (só na 1ª vez)"
+        }
+
+        val checklist = "$wifiLine\n$devLine\n$wirelessLine\n$pairLine"
+
+        if (envStatus.isPaired) {
+            StandaloneAdbBridge.startConnectAutoMonitor(this) { res ->
+                runOnUiThread {
+                    updatePermissionStatus()
+                    if (res.outcome == StandaloneAdbBridge.ConnectOutcome.CONNECTED) {
+                        Toast.makeText(this, res.detail, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            AlertDialog.Builder(this)
+                .setTitle("⚡ Iniciar Uber Independente (Sem Código)")
+                .setMessage(
+                    "$checklist\n\n" +
+                        "Seu celular já está pareado!\n" +
+                        "Não precisa digitar código nenhum: toque no botão abaixo, ative 'Depuração por Wi-Fi' (ou use o atalho 'Depuração sem fio' na barra rápida do Android) e o app inicia sozinho em segundos.\n\n" +
+                        "Detalhe: $statusDetail"
+                )
+                .setPositiveButton(if (envStatus.devOptionsEnabled) "📶 Abrir Opções Desenv." else "📱 Abrir Sobre o telefone") { _, _ ->
+                    if (envStatus.devOptionsEnabled) openDeveloperOptions() else openAboutPhoneSettings()
+                }
+                .setNeutralButton("▶ Conectar agora") { _, _ ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val res = StandaloneAdbBridge.connectAndStartDaemon(this@MainActivity)
+                        withContext(Dispatchers.Main) {
+                            updatePermissionStatus()
+                            Toast.makeText(this@MainActivity, res.detail, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                .setNegativeButton("🔑 Re-parear") { _, _ ->
+                    StandaloneAdbBridge.clearPairing(this)
+                    showStandaloneAdbDialog("Pareamento reiniciado. Siga os passos da 1ª vez.")
+                }
+                .show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("⚡ Ativar Uber Independente (1ª vez)")
+            .setMessage(
+                "$checklist\n\n" +
+                    "Como funciona (bem simples):\n" +
+                    "• Você só digita os 6 dígitos ESTA ÚNICA VEZ.\n" +
+                    "• Nas próximas vezes (mesmo se reiniciar), nunca mais pede código: basta ligar Wi-Fi + 'Depuração por Wi-Fi' que inicia sozinho!\n\n" +
+                    "Passo atual: tocaremos em 'Parear 1ª vez', enviaremos uma notificação para digitar os 6 dígitos sem sair da tela de Depuração por Wi-Fi."
+            )
+            .setPositiveButton(if (envStatus.devOptionsEnabled) "🔑 Parear (1ª vez)" else "📱 Ativar Opções Desenv.") { _, _ ->
+                if (!envStatus.devOptionsEnabled) {
+                    Toast.makeText(
+                        this,
+                        "Toque 7 vezes em 'Número da versão' / 'Número de compilação' para liberar o modo desenvolvedor.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    openAboutPhoneSettings()
+                    return@setPositiveButton
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 9902)
+                    Toast.makeText(this, "Permita notificações e toque em Parear novamente.", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                StandaloneAdbBridge.startPairingDiscovery(this)
+                AdbPairingReceiver.showPairingPromptNotification(this)
+                openDeveloperOptions()
+            }
+            .setNeutralButton("⌨️ Digitar código") { _, _ ->
+                showManualPairingCodeDialog()
+            }
+            .setNegativeButton("▶ Já pareei") { _, _ ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val res = StandaloneAdbBridge.connectAndStartDaemon(this@MainActivity)
+                    withContext(Dispatchers.Main) {
+                        updatePermissionStatus()
+                        Toast.makeText(this@MainActivity, res.detail, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun showManualPairingCodeDialog() {
+        StandaloneAdbBridge.startPairingDiscovery(this)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(10), dp(20), dp(4))
+        }
+        val edtCode = EditText(this).apply {
+            hint = "Código de 6 dígitos (ex: 482910)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
+        val edtPort = EditText(this).apply {
+            hint = "Porta (opcional — detectada automático se vazio)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
+        container.addView(edtCode)
+        container.addView(edtPort)
+
+        AlertDialog.Builder(this)
+            .setTitle("Parear com Código Wi-Fi")
+            .setView(container)
+            .setPositiveButton("Parear e Iniciar") { _, _ ->
+                val code = edtCode.text.toString().trim()
+                val port = edtPort.text.toString().trim().toIntOrNull()
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val res = StandaloneAdbBridge.pairAndStart(this@MainActivity, code, port)
+                    withContext(Dispatchers.Main) {
+                        updatePermissionStatus()
+                        Toast.makeText(this@MainActivity, res.detail, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun openDeveloperOptions() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+        }.onFailure {
+            runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+        }
+    }
+
+    private fun openAboutPhoneSettings() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_DEVICE_INFO_SETTINGS))
+        }.onFailure {
+            openDeveloperOptions()
+        }
     }
 
     private fun isAccessibilityEnabled(): Boolean {
@@ -817,9 +1365,12 @@ class MainActivity : AppCompatActivity() {
         binding.tilFuelPrice.hint = "Preço R$/$unit"
         binding.tilKmPerUnit.hint = "Faz km/$unit"
 
-        val est = FuelCalculator.estimate(6.7, 18.90, 42.0, config)
-        binding.txtFuelSummaryHint.text = if (est != null) {
-            "Exemplo em 6,7 km: ${est.costText}  •  ${est.profitText}"
+        val est = FuelCalculator.estimate(6.7, 18.90, 42.0, config, requireFuelDisplayEnabled = false)
+        binding.txtFuelSummaryHint.text = if (est != null && (config.fuelCostEnabled || config.useNetHourlyRate)) {
+            val baseStr = "Exemplo 6,7 km (R$ 18,90 • R$ 42/h): ${est.costText} • ${est.profitText}"
+            val netStr = est.netHourlyText?.let { " • $it" }.orEmpty()
+            val roundNote = if (config.roundDownNetHourlyRate) " (arred. p/ baixo)" else ""
+            "$baseStr$netStr$roundNote"
         } else {
             "Cálculo de combustível desativado."
         }

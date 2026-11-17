@@ -136,12 +136,27 @@ class MapAreaActivity : AppCompatActivity() {
         ).show()
 
         lifecycleScope.launch {
-            val streets = if (allowedZones.isNotEmpty()) {
+            val streetsPerZone = if (allowedZones.isNotEmpty()) {
+                withTimeoutOrNull(18000L) {
+                    OpenFreeMapStreetFetcher.fetchStreetsPerZone(allowedZones)
+                }.orEmpty()
+            } else {
+                emptyMap()
+            }
+
+            val streets = if (streetsPerZone.isNotEmpty()) {
+                streetsPerZone.values.flatten().distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+            } else if (allowedZones.isNotEmpty()) {
                 withTimeoutOrNull(18000L) {
                     fetchStreetsForAllowedZones(allowedZones)
                 }.orEmpty()
             } else {
                 emptyList()
+            }
+
+            val enrichedZones = zones.map { zone ->
+                val zoneStreets = streetsPerZone[zone.id]
+                if (!zoneStreets.isNullOrEmpty()) zone.copy(streetNames = zoneStreets) else zone
             }
 
             val latestConfig = repository.load()
@@ -156,7 +171,7 @@ class MapAreaActivity : AppCompatActivity() {
 
             repository.save(
                 latestConfig.copy(
-                    mapZones = zones,
+                    mapZones = enrichedZones,
                     polygonPoints = primaryPolygon,
                     allowedKeywords = mergedStreets
                 )

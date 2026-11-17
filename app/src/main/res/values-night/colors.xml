@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paleta do Filtro Inteligente (modo escuro): azul-marinho do logo com verde de destaque. -->
+<resources>
+    <color name="fi_primary">#00E676</color>
+    <color name="fi_on_primary">#00391A</color>
+    <color name="fi_primary_container">#0C3B26</color>
+    <color name="fi_on_primary_container">#8CF5BE</color>
+    <color name="fi_primary_inverse">#007A45</color>
+
+    <color name="fi_secondary">#FFC857</color>
+    <color name="fi_on_secondary">#3D2E00</color>
+    <color name="fi_secondary_container">#453400</color>
+    <color name="fi_on_secondary_container">#FFE08A</color>
+
+    <color name="fi_tertiary">#B79CFF</color>
+    <color name="fi_on_tertiary">#2A1A66</color>
+    <color name="fi_tertiary_container">#33276B</color>
+    <color name="fi_on_tertiary_container">#E3D9FF</color>
+
+    <color name="fi_error">#FF6B6B</color>
+    <color name="fi_on_error">#4A0A0A</color>
+    <color name="fi_error_container">#5C1A1A</color>
+    <color name="fi_on_error_container">#FFD6D6</color>
+
+    <color name="fi_background">#0A101D</color>
+    <color name="fi_surface">#0F172A</color>
+    <color name="fi_surface_dim">#0A101D</color>
+    <color name="fi_surface_bright">#2A3854</color>
+    <color name="fi_surface_container_lowest">#070C17</color>
+    <color name="fi_surface_container_low">#111A2E</color>
+    <color name="fi_surface_container">#152036</color>
+    <color name="fi_surface_container_high">#1B2842</color>
+    <color name="fi_surface_container_highest">#223150</color>
+    <color name="fi_surface_variant">#26344D</color>
+    <color name="fi_surface_inverse">#E6EDF7</color>
+    <color name="fi_on_surface_inverse">#1B2536</color>
+
+    <color name="fi_on_surface">#E6EDF7</color>
+    <color name="fi_on_surface_variant">#9FB0C8</color>
+    <color name="fi_outline">#5B6C88</color>
+    <color name="fi_outline_variant">#26344D</color>
+</resources>

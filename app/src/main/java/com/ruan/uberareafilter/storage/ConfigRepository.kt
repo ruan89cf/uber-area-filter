@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.ruan.uberareafilter.model.DualConflictPolicy
 import com.ruan.uberareafilter.model.FavoriteRideItem
 import com.ruan.uberareafilter.model.FilterConfig
 import com.ruan.uberareafilter.model.MapZone
@@ -104,6 +105,10 @@ class ConfigRepository(private val appContext: Context) {
             isEnabled = prefs.getBoolean(KEY_ENABLED, true),
             nineNineModuleEnabled = prefs.getBoolean(KEY_MOD_99, true),
             uberModuleEnabled = prefs.getBoolean(KEY_MOD_UBER, true),
+            dualConflictGuardEnabled = prefs.getBoolean(KEY_DUAL_CONFLICT_GUARD, true),
+            dualConflictPolicy = prefs.getString(KEY_DUAL_CONFLICT_POLICY, DualConflictPolicy.BLOCK_AUTO_ACCEPT_ONLY.name)
+                ?.let { raw -> runCatching { DualConflictPolicy.valueOf(raw) }.getOrNull() }
+                ?: DualConflictPolicy.BLOCK_AUTO_ACCEPT_ONLY,
             rejectUberMultiStopRides = prefs.getBoolean(KEY_REJECT_UBER_STOPS, false),
             autoRejectEnabled = prefs.getBoolean(KEY_AUTO_REJECT, true),
             autoAcceptInsideArea = prefs.getBoolean(KEY_AUTO_ACCEPT, true),
@@ -114,6 +119,7 @@ class ConfigRepository(private val appContext: Context) {
             favoriteAlertsEnabled = prefs.getBoolean(KEY_FAV_ALERTS, true),
             requireBothPickupAndDropoff = prefs.getBoolean(KEY_REQUIRE_BOTH, true),
             allowInterZoneRides = prefs.getBoolean(KEY_ALLOW_INTER_ZONE, false),
+            autoAcceptInterZone = prefs.getBoolean(KEY_AUTO_ACCEPT_INTER_ZONE, false),
             yellowCardOutsideAreaEnabled = prefs.getBoolean(KEY_YELLOW_CARD_OUTSIDE, true),
             avBrasilOddSideOnly = prefs.getBoolean(KEY_AV_BRASIL_ODD, true),
             reject99RiskAreaBadge = prefs.getBoolean(KEY_REJECT_RISK_BADGE, true),
@@ -130,8 +136,14 @@ class ConfigRepository(private val appContext: Context) {
             maxTotalDistanceKm = getDouble(KEY_MAX_TOTAL_DIST, 15.0),
             filterByHourlyRateEnabled = prefs.getBoolean(KEY_FILTER_HOURLY, true),
             minHourlyRate = getDouble(KEY_MIN_HOURLY, 30.0),
+            uberCustomHourlyEnabled = prefs.getBoolean(KEY_UBER_CUSTOM_HOURLY, false),
+            uberMinHourlyRate = getDouble(KEY_UBER_MIN_HOURLY, 30.0),
+            useNetHourlyRate = prefs.getBoolean(KEY_USE_NET_HOURLY, false),
+            roundDownNetHourlyRate = prefs.getBoolean(KEY_ROUND_DOWN_NET_HOURLY, false),
             darkThemeEnabled = prefs.getBoolean(KEY_DARK_THEME, true),
             bannerScale = prefs.getInt(KEY_BANNER_SCALE, 1),
+            showRideInfoBannerEnabled = prefs.getBoolean(KEY_SHOW_RIDE_BANNER, true),
+            bannerAutoHideSeconds = prefs.getInt(KEY_BANNER_DURATION_SEC, 5).coerceIn(1, 30),
             colorInsideHex = prefs.getString(KEY_COLOR_INSIDE, "#0A2E1D") ?: "#0A2E1D",
             colorOutsideHex = prefs.getString(KEY_COLOR_OUTSIDE, "#330A0A") ?: "#330A0A",
             colorInterZoneHex = prefs.getString(KEY_COLOR_INTER_ZONE, "#271252") ?: "#271252",
@@ -141,7 +153,9 @@ class ConfigRepository(private val appContext: Context) {
             fuelPricePerUnit = getDouble(KEY_FUEL_PRICE, 6.29),
             kmPerUnit = getDouble(KEY_KM_PER_UNIT, 35.0),
             rejectButtonHints = hints,
-            debugMode = prefs.getBoolean(KEY_DEBUG, true)
+            debugMode = prefs.getBoolean(KEY_DEBUG, true),
+            xrayDiagnosticEnabled = prefs.getBoolean(KEY_XRAY_DIAGNOSTIC, true),
+            saveRideScreenshotsEnabled = prefs.getBoolean(KEY_SAVE_RIDE_SCREENSHOTS, true)
         )
     }
 
@@ -157,6 +171,8 @@ class ConfigRepository(private val appContext: Context) {
             .putBoolean(KEY_ENABLED, config.isEnabled)
             .putBoolean(KEY_MOD_99, config.nineNineModuleEnabled)
             .putBoolean(KEY_MOD_UBER, config.uberModuleEnabled)
+            .putBoolean(KEY_DUAL_CONFLICT_GUARD, config.dualConflictGuardEnabled)
+            .putString(KEY_DUAL_CONFLICT_POLICY, config.dualConflictPolicy.name)
             .putBoolean(KEY_REJECT_UBER_STOPS, config.rejectUberMultiStopRides)
             .putBoolean(KEY_AUTO_REJECT, config.autoRejectEnabled)
             .putBoolean(KEY_AUTO_ACCEPT, config.autoAcceptInsideArea)
@@ -167,6 +183,7 @@ class ConfigRepository(private val appContext: Context) {
             .putBoolean(KEY_FAV_ALERTS, config.favoriteAlertsEnabled)
             .putBoolean(KEY_REQUIRE_BOTH, config.requireBothPickupAndDropoff)
             .putBoolean(KEY_ALLOW_INTER_ZONE, config.allowInterZoneRides)
+            .putBoolean(KEY_AUTO_ACCEPT_INTER_ZONE, config.autoAcceptInterZone)
             .putBoolean(KEY_YELLOW_CARD_OUTSIDE, config.yellowCardOutsideAreaEnabled)
             .putBoolean(KEY_AV_BRASIL_ODD, config.avBrasilOddSideOnly)
             .putBoolean(KEY_REJECT_RISK_BADGE, config.reject99RiskAreaBadge)
@@ -183,8 +200,14 @@ class ConfigRepository(private val appContext: Context) {
             .putLong(KEY_MAX_TOTAL_DIST, java.lang.Double.doubleToRawLongBits(config.maxTotalDistanceKm))
             .putBoolean(KEY_FILTER_HOURLY, config.filterByHourlyRateEnabled)
             .putLong(KEY_MIN_HOURLY, java.lang.Double.doubleToRawLongBits(config.minHourlyRate))
+            .putBoolean(KEY_UBER_CUSTOM_HOURLY, config.uberCustomHourlyEnabled)
+            .putLong(KEY_UBER_MIN_HOURLY, java.lang.Double.doubleToRawLongBits(config.uberMinHourlyRate))
+            .putBoolean(KEY_USE_NET_HOURLY, config.useNetHourlyRate)
+            .putBoolean(KEY_ROUND_DOWN_NET_HOURLY, config.roundDownNetHourlyRate)
             .putBoolean(KEY_DARK_THEME, config.darkThemeEnabled)
             .putInt(KEY_BANNER_SCALE, config.bannerScale)
+            .putBoolean(KEY_SHOW_RIDE_BANNER, config.showRideInfoBannerEnabled)
+            .putInt(KEY_BANNER_DURATION_SEC, config.bannerAutoHideSeconds.coerceIn(1, 30))
             .putString(KEY_COLOR_INSIDE, config.colorInsideHex)
             .putString(KEY_COLOR_OUTSIDE, config.colorOutsideHex)
             .putString(KEY_COLOR_INTER_ZONE, config.colorInterZoneHex)
@@ -195,6 +218,8 @@ class ConfigRepository(private val appContext: Context) {
             .putLong(KEY_KM_PER_UNIT, java.lang.Double.doubleToRawLongBits(config.kmPerUnit))
             .putString(KEY_REJECT_HINTS, config.rejectButtonHints.joinToString(","))
             .putBoolean(KEY_DEBUG, config.debugMode)
+            .putBoolean(KEY_XRAY_DIAGNOSTIC, config.xrayDiagnosticEnabled)
+            .putBoolean(KEY_SAVE_RIDE_SCREENSHOTS, config.saveRideScreenshotsEnabled)
             .apply()
     }
 
@@ -240,7 +265,8 @@ class ConfigRepository(private val appContext: Context) {
                         hourlyRateText = obj.optString("hourly"),
                         ratingText = obj.optString("rating"),
                         isInsideArea = obj.optBoolean("inside"),
-                        reason = obj.optString("reason")
+                        reason = obj.optString("reason"),
+                        screenshotPath = obj.optString("screenshotPath", "")
                     )
                 )
             }
@@ -250,10 +276,10 @@ class ConfigRepository(private val appContext: Context) {
         }
     }
 
-    fun addRideHistory(item: RideHistoryItem) {
-        val updated = (listOf(item) + getRideHistory()).take(15)
+
+    private fun serializeHistoryList(items: List<RideHistoryItem>): JSONArray {
         val arr = JSONArray()
-        updated.forEach { r ->
+        items.forEach { r ->
             arr.put(
                 JSONObject()
                     .put("id", r.id)
@@ -266,8 +292,26 @@ class ConfigRepository(private val appContext: Context) {
                     .put("rating", r.ratingText)
                     .put("inside", r.isInsideArea)
                     .put("reason", r.reason)
+                    .put("screenshotPath", r.screenshotPath)
             )
         }
+        return arr
+    }
+
+    fun addRideHistory(item: RideHistoryItem) {
+        val allItems = listOf(item) + getRideHistory()
+        val updated = allItems.take(MAX_HISTORY_ITEMS)
+        val retainedPaths = updated.mapNotNull { it.screenshotPath.takeIf { p -> p.isNotBlank() } }.toSet()
+        allItems.drop(MAX_HISTORY_ITEMS).forEach { dropped ->
+            val path = dropped.screenshotPath
+            if (path.isNotBlank() && path !in retainedPaths) {
+                try {
+                    File(path).delete()
+                } catch (_: Exception) {
+                }
+            }
+        }
+        val arr = serializeHistoryList(updated)
         prefs.edit()
             .putString(KEY_HISTORY, arr.toString())
             .apply()
@@ -276,6 +320,23 @@ class ConfigRepository(private val appContext: Context) {
             setLastCandidateForFavorite(item)
         }
         _historyFlow.value = updated
+    }
+
+    /**
+     * Apaga todos os prints silenciosos do armazenamento interno privado do app
+     * e limpa os caminhos salvos nos cards do historico.
+     */
+    fun clearAllRideScreenshots(): Int {
+        val removed = clearRideScreenshotsOnDisk(appContext)
+        val current = getRideHistory()
+        if (current.any { it.screenshotPath.isNotBlank() }) {
+            val cleaned = current.map { it.copy(screenshotPath = "") }
+            prefs.edit()
+                .putString(KEY_HISTORY, serializeHistoryList(cleaned).toString())
+                .apply()
+            _historyFlow.value = cleaned
+        }
+        return removed
     }
 
     fun setLastCandidateForFavorite(item: RideHistoryItem) {
@@ -409,6 +470,8 @@ class ConfigRepository(private val appContext: Context) {
             z.points.forEach { (lat, lng) ->
                 ptsArr.put(JSONArray().put(lat).put(lng))
             }
+            val streetsArr = JSONArray()
+            z.streetNames.forEach { streetsArr.put(it) }
             arr.put(
                 JSONObject()
                     .put("id", z.id)
@@ -419,21 +482,27 @@ class ConfigRepository(private val appContext: Context) {
                     .put("centerLat", z.centerLat)
                     .put("centerLng", z.centerLng)
                     .put("radiusMeters", z.radiusMeters)
+                    .put("streetNames", streetsArr)
             )
         }
         return arr
     }
 
-    fun parseMapZones(json: String): List<MapZone> {
+    fun parseMapZones(rawJson: String): List<MapZone> {
+        if (rawJson.isBlank()) return emptyList()
         return try {
-            val arr = JSONArray(json)
+            val arr = JSONArray(rawJson)
             val list = mutableListOf<MapZone>()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                val modeStr = obj.optString("mode", "ALLOWED")
-                val shapeStr = obj.optString("shape", "POLYGON")
-                val mode = runCatching { ZoneMode.valueOf(modeStr) }.getOrDefault(ZoneMode.ALLOWED)
-                val shape = runCatching { ZoneShape.valueOf(shapeStr) }.getOrDefault(ZoneShape.POLYGON)
+                val mode = when (obj.optString("mode")) {
+                    "BLOCKED" -> ZoneMode.BLOCKED
+                    else -> ZoneMode.ALLOWED
+                }
+                val shape = when (obj.optString("shape")) {
+                    "CIRCLE" -> ZoneShape.CIRCLE
+                    else -> ZoneShape.POLYGON
+                }
 
                 val pts = mutableListOf<Pair<Double, Double>>()
                 val ptsArr = obj.optJSONArray("points")
@@ -441,6 +510,15 @@ class ConfigRepository(private val appContext: Context) {
                     for (j in 0 until ptsArr.length()) {
                         val pt = ptsArr.optJSONArray(j) ?: continue
                         pts.add(pt.optDouble(0) to pt.optDouble(1))
+                    }
+                }
+
+                val streets = mutableListOf<String>()
+                val streetsArr = obj.optJSONArray("streetNames")
+                if (streetsArr != null) {
+                    for (j in 0 until streetsArr.length()) {
+                        val s = streetsArr.optString(j).trim()
+                        if (s.isNotEmpty()) streets.add(s)
                     }
                 }
 
@@ -453,7 +531,8 @@ class ConfigRepository(private val appContext: Context) {
                         points = pts,
                         centerLat = obj.optDouble("centerLat", 0.0),
                         centerLng = obj.optDouble("centerLng", 0.0),
-                        radiusMeters = obj.optDouble("radiusMeters", 1000.0)
+                        radiusMeters = obj.optDouble("radiusMeters", 1000.0),
+                        streetNames = streets
                     )
                 )
             }
@@ -463,12 +542,22 @@ class ConfigRepository(private val appContext: Context) {
         }
     }
 
+    fun isWhatsNewSeen(currentVersion: Int): Boolean {
+        return prefs.getInt(KEY_WHATS_NEW_VERSION, 0) >= currentVersion
+    }
+
+    fun markWhatsNewSeen(currentVersion: Int) {
+        prefs.edit().putInt(KEY_WHATS_NEW_VERSION, currentVersion).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "uber_area_filter_prefs"
         private const val LOG_FILE_NAME = "filtro_inteligente_logs.txt"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_MOD_99 = "mod_99_enabled"
         private const val KEY_MOD_UBER = "mod_uber_enabled"
+        private const val KEY_DUAL_CONFLICT_GUARD = "dual_conflict_guard_enabled"
+        private const val KEY_DUAL_CONFLICT_POLICY = "dual_conflict_policy"
         private const val KEY_REJECT_UBER_STOPS = "reject_uber_multi_stops"
         private const val KEY_AUTO_REJECT = "auto_reject"
         private const val KEY_AUTO_ACCEPT = "auto_accept_inside"
@@ -496,6 +585,10 @@ class ConfigRepository(private val appContext: Context) {
         private const val KEY_MAX_TOTAL_DIST = "max_total_dist"
         private const val KEY_FILTER_HOURLY = "filter_hourly_enabled"
         private const val KEY_MIN_HOURLY = "min_hourly_rate"
+        private const val KEY_UBER_CUSTOM_HOURLY = "uber_custom_hourly_enabled"
+        private const val KEY_UBER_MIN_HOURLY = "uber_min_hourly_rate"
+        private const val KEY_USE_NET_HOURLY = "use_net_hourly_rate"
+        private const val KEY_ROUND_DOWN_NET_HOURLY = "round_down_net_hourly_rate"
         private const val KEY_DARK_THEME = "dark_theme_enabled"
         private const val KEY_BANNER_SCALE = "banner_scale"
         private const val KEY_COLOR_INSIDE = "color_inside_hex"
@@ -506,11 +599,64 @@ class ConfigRepository(private val appContext: Context) {
         private const val KEY_FUEL_TYPE = "fuel_type"
         private const val KEY_FUEL_PRICE = "fuel_price_per_unit"
         private const val KEY_KM_PER_UNIT = "km_per_unit"
+        private const val KEY_AUTO_ACCEPT_INTER_ZONE = "auto_accept_inter_zone"
+        private const val KEY_SHOW_RIDE_BANNER = "show_ride_info_banner"
+        private const val KEY_BANNER_DURATION_SEC = "banner_auto_hide_seconds"
         private const val KEY_REJECT_HINTS = "reject_hints"
         private const val KEY_DEBUG = "debug_mode"
+        private const val KEY_XRAY_DIAGNOSTIC = "xray_diagnostic_enabled"
+        private const val KEY_SAVE_RIDE_SCREENSHOTS = "save_ride_screenshots_enabled"
+        private const val KEY_WHATS_NEW_VERSION = "whats_new_last_seen_version"
         private const val KEY_HISTORY = "ride_history_json"
         private const val KEY_FAVORITES = "favorite_rides_json"
         private const val KEY_LAST_CANDIDATE = "last_candidate_ride_json"
+        private const val MAX_HISTORY_ITEMS = 20
+        private const val RIDE_SHOTS_DIR = "ride_shots"
+
+        private fun getRideShotsDir(context: Context): File {
+            // Armazenamento interno privado do app (UID sandbox): invisivel para Galeria, Uber e 99
+            return File(context.applicationContext.filesDir, RIDE_SHOTS_DIR)
+        }
+
+        fun buildRideScreenshotPath(context: Context, rideId: Long): String {
+            val dir = getRideShotsDir(context)
+            return File(dir, "ride_$rideId.jpg").absolutePath
+        }
+
+        fun saveRideScreenshotBytesToPath(path: String, jpegBytes: ByteArray): Boolean {
+            return try {
+                val target = File(path)
+                target.parentFile?.mkdirs()
+                target.writeBytes(jpegBytes)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        fun getRideScreenshotsStats(context: Context): Pair<Int, Long> {
+            return try {
+                val dir = getRideShotsDir(context)
+                val files = dir.listFiles()?.filter { it.isFile && it.name.endsWith(".jpg") }.orEmpty()
+                files.size to files.sumOf { it.length() }
+            } catch (_: Exception) {
+                0 to 0L
+            }
+        }
+
+        fun clearRideScreenshotsOnDisk(context: Context): Int {
+            return try {
+                val dir = getRideShotsDir(context)
+                val files = dir.listFiles()?.filter { it.isFile }.orEmpty()
+                var count = 0
+                files.forEach { file ->
+                    if (file.delete()) count++
+                }
+                count
+            } catch (_: Exception) {
+                0
+            }
+        }
 
         @Volatile
         private var cachedLogFile: File? = null

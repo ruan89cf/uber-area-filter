@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- ===== Texto ===== -->
+
+    <!-- Rótulo de grupo em caixa alta: "SEGURANÇA", "RENTABILIDADE"... -->
+    <style name="TextAppearance.Filtro.Overline" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textSize">12sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0.12</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <!-- Frase de abertura de uma tela -->
+    <style name="TextAppearance.Filtro.Headline" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textSize">26sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">-0.01</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <!-- Título de um item dentro de um card -->
+    <style name="TextAppearance.Filtro.ItemTitle" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <!-- Texto de apoio -->
+    <style name="TextAppearance.Filtro.Body" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <!-- Notas pequenas e dicas -->
+    <style name="TextAppearance.Filtro.Caption" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <!-- ===== Componentes ===== -->
+
+    <!-- Card de grupo: plano, com contorno fino. Usado em todas as telas. -->
+    <style name="Widget.Filtro.Card" parent="Widget.Material3.CardView.Outlined">
+        <item name="cardBackgroundColor">?attr/colorSurface</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeColor">?attr/colorOutlineVariant</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.Filtro.Card</item>
+    </style>
+
+    <style name="ShapeAppearance.Filtro.Card" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
+    </style>
+
+    <style name="ShapeAppearance.Filtro.Logo" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">16dp</item>
+    </style>
+
+    <!-- Botão principal de tela: alto o bastante para tocar com o celular no suporte -->
+    <style name="Widget.Filtro.Button.Primary" parent="Widget.Material3.Button">
+        <item name="android:minHeight">56dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="cornerRadius">16dp</item>
+        <item name="iconGravity">textEnd</item>
+        <item name="iconPadding">10dp</item>
+        <item name="iconSize">20dp</item>
+    </style>
+
+    <!-- Linha divisória entre itens de um mesmo card, alinhada ao texto -->
+    <style name="Widget.Filtro.RowDivider" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:layout_marginStart">76dp</item>
+        <item name="android:background">?attr/colorOutlineVariant</item>
+    </style>
+
+    <!-- ===== Painel principal ===== -->
+
+    <!-- Rótulo de uma opção (switch, rádio, linha com campo) -->
+    <style name="TextAppearance.Filtro.SwitchLabel" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="Widget.Filtro.Switch" parent="Widget.Material3.CompoundButton.MaterialSwitch">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.Filtro.SwitchLabel</item>
+        <item name="switchPadding">16dp</item>
+    </style>
+
+    <!-- Switch do liga/desliga geral -->
+    <style name="Widget.Filtro.Switch.Hero" parent="Widget.Filtro.Switch">
+        <item name="android:textSize">19sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">?attr/colorOnPrimaryContainer</item>
+    </style>
+
+    <style name="Widget.Filtro.Radio" parent="Widget.Material3.CompoundButton.RadioButton">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.Filtro.SwitchLabel</item>
+    </style>
+
+    <!-- Campo numérico curto ao lado de um switch (R$/h, km, nota) -->
+    <style name="Widget.Filtro.NumberField" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">
+        <item name="boxCornerRadiusTopStart">12dp</item>
+        <item name="boxCornerRadiusTopEnd">12dp</item>
+        <item name="boxCornerRadiusBottomStart">12dp</item>
+        <item name="boxCornerRadiusBottomEnd">12dp</item>
+    </style>
+
+    <!-- Card de destaque: fundo verde suave, sem contorno -->
+    <style name="Widget.Filtro.Card.Hero" parent="Widget.Filtro.Card">
+        <item name="cardBackgroundColor">?attr/colorPrimaryContainer</item>
+        <item name="strokeWidth">0dp</item>
+    </style>
+
+    <!-- Separa subgrupos dentro de um card -->
+    <style name="Widget.Filtro.CardDivider" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:background">?attr/colorOutlineVariant</item>
+    </style>
+
+    <style name="Widget.Filtro.CardDivider.OnHero" parent="Widget.Filtro.CardDivider">
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:layout_marginBottom">12dp</item>
+        <item name="android:background">@color/fi_hero_divider</item>
+    </style>
+
+    <!-- Botões secundários -->
+    <style name="Widget.Filtro.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/fi_btn_tonal_text</item>
+        <item name="backgroundTint">@color/fi_btn_tonal_bg</item>
+        <item name="iconTint">@color/fi_btn_tonal_text</item>
+        <item name="cornerRadius">14dp</item>
+    </style>
+
+    <style name="Widget.Filtro.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="cornerRadius">14dp</item>
+    </style>
+
+    <style name="Widget.Filtro.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- Amostra de cor dos cards: o código pinta o fundo com a cor escolhida -->
+    <style name="Widget.Filtro.Button.Swatch" parent="Widget.Material3.Button">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="cornerRadius">14dp</item>
+    </style>
+
+    <style name="ShapeAppearance.Filtro.LogoSmall" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
+    </style>
+
+    <!-- Barra inferior de abas -->
+    <style name="Widget.Filtro.BottomNav" parent="Widget.Material3.BottomNavigationView">
+        <item name="backgroundTint">?attr/colorSurface</item>
+        <item name="elevation">0dp</item>
+        <item name="labelVisibilityMode">labeled</item>
+        <item name="itemIconTint">@color/fi_nav_icon</item>
+        <item name="itemTextColor">@color/fi_nav_text</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.Filtro.BottomNav.Indicator</item>
+    </style>
+
+    <style name="Widget.Filtro.BottomNav.Indicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">?attr/colorPrimaryContainer</item>
+    </style>
+
+</resources>
