@@ -97,7 +97,11 @@ class DualRideCoordinator {
     fun isActive(config: FilterConfig): Boolean =
         CaptureMode.from(config) == CaptureMode.DUAL && config.dualConflictGuardEnabled
 
+    /** Ultima tela de fim ja usada por app (ate aparecer outra tela desse app). */
+    private val latchedEndScreen = HashMap<String, String>()
+
     fun reset() {
+        latchedEndScreen.clear()
         primaryRide = null
         queuedRide = null
         progress.clear()
@@ -208,6 +212,22 @@ class DualRideCoordinator {
         }
 
         val app = parsed.appSource
+
+        // Tela de fim (avaliacao / cancelada) fica varias leituras seguidas na tela: conta UMA vez so.
+        // Sem isso, a 2a leitura da avaliacao da corrida #1 "finalizava" a #2 que acabou de virar a atual (18/11).
+        val endTag = when {
+            parsed.isCancelledScreen -> "CANCEL"
+            parsed.isRatingScreen -> "RATING"
+            else -> null
+        }
+        val appKey = app.uppercase()
+        if (endTag == null) {
+            latchedEndScreen.remove(appKey)
+        } else if (latchedEndScreen[appKey] == endTag) {
+            return null
+        } else {
+            latchedEndScreen[appKey] = endTag
+        }
 
         // 1. Cancelamento explicito na tela ("Passageiro cancelou", "Voce cancelou a corrida"...)
         if (parsed.isCancelledScreen) {

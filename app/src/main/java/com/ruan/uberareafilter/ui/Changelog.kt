@@ -12,6 +12,14 @@ object Changelog {
 
     val releases: List<Release> = listOf(
         Release(
+            versionCode = 20, versionName = "2.6.3", date = "18/11/2026",
+            items = listOf(
+                Item("🔔", "Notificação por cima do X", "Quando uma notificação (WhatsApp, etc.) cobria o “X Não afeta a TA”, o toque caía nela e a recusa precisava de 3 a 5 tentativas. Agora o app arrasta a notificação para cima antes de recusar."),
+                Item("🔒", "Cancelamento e fim de corrida", "“Você cancelou a corrida” fica no topo da tela e o app não via: agora vê. E a mesma tela de avaliação lida duas vezes não fecha mais a corrida que estava na fila (antes ela aparecia como concluída em 0 min)."),
+                Item("👀", "Tempo ilegível", "Quando a 99 mostra o tempo do trecho ilegível (“J min (1,4 km)”), o app usa o km e lê a corrida em vez de ignorar.")
+            )
+        ),
+        Release(
             versionCode = 19, versionName = "2.6.2", date = "18/11/2026",
             items = listOf(
                 Item("📏", "Medindo a rota real", "Para descobrir quantas vezes a 99 erra o km por causa de passarela, Av. Brasil e linha do trem, o app anota no registro, em cada corrida, onde você estava (GPS) e onde fica o embarque. Fica só no celular e não muda nada no funcionamento.")

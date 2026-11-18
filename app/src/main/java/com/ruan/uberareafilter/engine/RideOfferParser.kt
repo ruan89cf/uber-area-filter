@@ -257,6 +257,7 @@ object RideOfferParser {
         var counterRowBox: Rect? = null
         var editorPlusBox: Rect? = null
         var editorConfirmBox: Rect? = null
+        val topTexts = mutableListOf<String>()
 
         for ((rawText, box) in sortedLines) {
             val raw = rawText.trim()
@@ -311,6 +312,9 @@ object RideOfferParser {
             // Isso impede 100% que o OCR leia o botao de saldo "R$ 0,00", nosso proprio card de status no topo
             // ou o nome da rua da barra preta de navegacao GPS como se fossem dados da corrida!
             if (box != null && box.top < screenHeight * 0.30f) {
+                // O topo nao entra na leitura da oferta, mas as telas de fim ficam la em cima
+                // ("Voce cancelou a corrida" a 8% da altura): guarda so para reconhecer a etapa
+                topTexts.add(raw)
                 continue
             }
 
@@ -372,7 +376,8 @@ object RideOfferParser {
             acceptNode = null,
             acceptTapPoint = ocrAcceptCenter ?: fallbackAcceptTap,
             continueNode = null,
-            continueTapPoint = ocrContinueCenter ?: fallbackContinueTap
+            continueTapPoint = ocrContinueCenter ?: fallbackContinueTap,
+            topTexts = topTexts
         )
 
         return when {
@@ -742,7 +747,8 @@ object RideOfferParser {
         acceptNode: AccessibilityNodeInfo?,
         acceptTapPoint: Pair<Float, Float>?,
         continueNode: AccessibilityNodeInfo?,
-        continueTapPoint: Pair<Float, Float>?
+        continueTapPoint: Pair<Float, Float>?,
+        topTexts: List<String> = emptyList()
     ): ParsedRideOffer {
         val legs = extractLegsInfo(texts)
         val pickup = legs.pickup
@@ -895,22 +901,24 @@ object RideOfferParser {
             !hasUberExclusiveMarker &&
             hasPriceOrDistance
 
-        val isRatingScreen = !isOffer && !continueDetected && normAll.any { line ->
+        // Etapas da corrida olham tambem o topo da tela (titulos de "cancelada" / avaliacao / em viagem)
+        val normStage = normAll + topTexts.map { TextNormalizer.normalize(it) }
+        val isRatingScreen = !isOffer && !continueDetected && normStage.any { line ->
             ratingScreenHints.any { hint -> line.contains(hint) }
         }
         val ratingPassengerName = if (isRatingScreen) {
-            extractRatingPassengerName(texts)
+            extractRatingPassengerName(texts + topTexts)
         } else {
             null
         }
 
         // "OK, corrida cancelada" fica fixo no mapa da 99 durante a viagem (atalho de voz): nao e cancelamento
-        val isCancelledScreen = !isOffer && !continueDetected && normAll.any { line ->
+        val isCancelledScreen = !isOffer && !continueDetected && normStage.any { line ->
             val clean = TextNormalizer.withoutVoiceCancelShortcut(line)
             cancelledHints.any { hint -> clean.contains(hint) }
         }
 
-        val isInActiveRide = !isOffer && !continueDetected && !isRatingScreen && !isCancelledScreen && normAll.any { line ->
+        val isInActiveRide = !isOffer && !continueDetected && !isRatingScreen && !isCancelledScreen && normStage.any { line ->
             activeRideHints.any { hint -> line.contains(hint) } &&
                 // "Corrida aceita por outro motorista" / "nao esta mais disponivel" nao e corrida sua
                 activeRideNegations.none { line.contains(it) }
@@ -1115,11 +1123,15 @@ object RideOfferParser {
     }
 
     private val legFiveAsSRegex = Regex("""^\s*[Ss]\s*(min(?:uto[s]?)?\s*\()""", RegexOption.IGNORE_CASE)
+    // Minutos ilegiveis mas km lido ("J min (1,4 km)", "min (2,9 km)"): vira "0 min" = tempo desconhecido
+    // (minutos 0 sao descartados no R$/h, que passa a usar o km). Sem isso a corrida inteira era ignorada.
+    private val legUnreadableMinutesRegex = Regex("""^\s*(?:[A-Za-z]{1,2}\s*)?(min(?:uto[s]?)?\s*\(\s*\d)""", RegexOption.IGNORE_CASE)
 
     private fun normalizeLegOcrNoise(raw: String): String {
         var s = stripLegIconNoise(raw)
         // "S min (3,1 km)": o 5 lido como S (so quando e o trecho inteiro "N min (X km)")
         s = legFiveAsSRegex.replace(s) { m -> "5 ${m.groupValues[1]}" }
+        s = legUnreadableMinutesRegex.replace(s) { m -> "0 ${m.groupValues[1]}" }
         s = s.replace(Regex("""(\d)\s*([.,])\s*(\d)"""), "$1$2$3")
         // Digitos trocados por letras parecidas antes de "min": I/l/|/! -> 1 e O/o -> 0 ("1O min", "l2 min")
         s = s.replace(Regex("""\b([0-9Il|!Oo]{1,3})\s*(min(?:uto[s]?)?)""", RegexOption.IGNORE_CASE)) { m ->

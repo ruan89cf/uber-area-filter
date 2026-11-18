@@ -258,8 +258,10 @@ class RideLedgerTracker(
                     }
                 }
             }
-            "AVALIACAO" -> closeCurrent(app, EarningsStore.STATUS_DONE, "tela de avaliação", now)
-            "CANCELADA" -> {
+            // Telas de fim contam uma vez so: varias leituras seguidas da MESMA avaliacao/cancelamento
+            // nao podem fechar tambem a corrida da fila que acabou de virar a atual (18/11: #33, #35, #37).
+            "AVALIACAO" -> if (prev != "AVALIACAO") closeCurrent(app, EarningsStore.STATUS_DONE, "tela de avaliação", now)
+            "CANCELADA" -> if (prev != "CANCELADA") {
                 val q = open[app]
                 if (q != null && q.size > 1) {
                     // Com corrida na fila, quem cancela quase sempre e o passageiro da PROXIMA

@@ -1579,6 +1579,7 @@ class UberAccessibilityService : AccessibilityService() {
         var negotiatePriceOnly = false
         var negotiateTooFar = false
         var negotiateAtMinDecision: Decision? = null
+        var negotiateAtMinReason = ""
         if (negotiation != null && !negotiation.passesAtPassengerPrice &&
             (decided.decision == Decision.OUTSIDE_AREA || decided.decision == Decision.UNCERTAIN)
         ) {
@@ -1588,6 +1589,7 @@ class UberAccessibilityService : AccessibilityService() {
             val priceOnly = atMin != null &&
                 (atMin.decision == Decision.INSIDE_AREA || atMin.decision == Decision.INTER_ZONE)
             negotiateAtMinDecision = atMin?.decision
+            negotiateAtMinReason = atMin?.reason.orEmpty()
             negotiatePriceOnly = priceOnly && negotiation.withinReach
             negotiateTooFar = priceOnly && !negotiation.withinReach
         }
@@ -1599,6 +1601,8 @@ class UberAccessibilityService : AccessibilityService() {
                 negotiateTooFar -> "só o preço atrapalha, mas ${NegotiationAdvisor.logText(negotiation)}: longe demais (+${negotiation.raisePercent}%), recusa normal"
                 negotiation.passesAtPassengerPrice && (decided.decision == Decision.INSIDE_AREA || decided.decision == Decision.INTER_ZONE) ->
                     "${NegotiationAdvisor.logText(negotiation)} • segue como corrida normal"
+                negotiateAtMinDecision != null ->
+                    "mesmo pedindo R$ ${String.format(Locale("pt", "BR"), "%.2f", negotiation.minPrice)} ela não passaria (${negotiateAtMinReason.take(90)}) • segue a regra normal"
                 else -> "o problema não é o preço (${decided.reason.take(80)}) • segue a regra normal"
             }
             log("[NEGOCIA] [${parsed.appSource}] R$ ${String.format(Locale("pt", "BR"), "%.2f", negotiation.passengerPrice)} " +
@@ -2388,6 +2392,7 @@ class UberAccessibilityService : AccessibilityService() {
                 }
             }
             if (target != null) {
+                clearHeadsUpOver(target.first, target.second)
                 return dispatchTap(target.first, target.second)
             }
             return false
@@ -2466,6 +2471,38 @@ class UberAccessibilityService : AccessibilityService() {
         }
         tapPoint?.let { (x, y) ->
             return dispatchTap(x, y)
+        }
+        return false
+    }
+
+    /**
+     * Notificacao do Android (heads-up) por cima do ponto do toque: o toque caia nela e nao na 99
+     * (18/11 19:09 e 19:38: recusa precisou de 3 a 5 toques). Arrasta a notificacao para cima antes de tocar.
+     */
+    private suspend fun clearHeadsUpOver(x: Float, y: Float): Boolean {
+        val wins = runCatching { windows }.getOrNull() ?: return false
+        val r = Rect()
+        for (w in wins) {
+            if (w.type != AccessibilityWindowInfo.TYPE_SYSTEM) continue
+            w.getBoundsInScreen(r)
+            // a barra de status (ate ~130 px) nao conta; a notificacao e bem mais alta
+            if (r.height() < 150 || !r.contains(x.toInt(), y.toInt())) continue
+            val pkg = runCatching { w.root?.packageName?.toString() }.getOrNull().orEmpty().lowercase()
+            if (!pkg.contains("systemui")) continue
+            val cx = r.exactCenterX()
+            val path = Path().apply {
+                moveTo(cx, r.exactCenterY())
+                lineTo(cx, (r.top - 20).coerceAtLeast(1).toFloat())
+            }
+            overlayManager.markAutomatedTapInProgress(950L)
+            val ok = dispatchGesture(
+                GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0L, 180L)).build(),
+                null,
+                null
+            )
+            log("[RECUSA] Notificação do Android cobrindo o toque (${r.left},${r.top}-${r.right},${r.bottom}): arrastei para cima antes de tocar (ok=$ok)")
+            delay(380L)
+            return ok
         }
         return false
     }

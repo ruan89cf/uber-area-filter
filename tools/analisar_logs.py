@@ -205,7 +205,7 @@ def analyze(events):
         if "R$/km=N/A" in t and "(OFERTA" in t:
             counts["preco_nao_lido"] += 1
         if t.startswith("[NEGOCIA]"):
-            rep["💬 Negocia (o app nunca aceita sozinho)"].append(f"{hhmm} {short(t, 260)}")
+            rep["💬 Negocia"].append(f"{hhmm} {short(t, 260)}")
         # Card de corrida com "Aceitar" + "N min" + "R$" que o app NAO reconheceu = visual novo do app?
         if "[RAIO-X OCR-NAO-CASADO]" in t:
             items = re.findall(r':"([^"]*)"', t)
