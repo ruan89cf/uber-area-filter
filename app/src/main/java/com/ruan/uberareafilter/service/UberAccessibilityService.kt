@@ -39,6 +39,7 @@ import com.ruan.uberareafilter.engine.AreaEvaluator
 import com.ruan.uberareafilter.engine.BlockedMatcher
 import com.ruan.uberareafilter.engine.ChainPlanner
 import com.ruan.uberareafilter.engine.CounterOfferFlow
+import com.ruan.uberareafilter.engine.DriverFix
 import com.ruan.uberareafilter.engine.DriverPresence
 import com.ruan.uberareafilter.engine.OfferSignature
 import com.ruan.uberareafilter.engine.Decision
@@ -1614,6 +1615,7 @@ class UberAccessibilityService : AccessibilityService() {
             FuelCalculator.estimate(km, parsed.ridePrice, parsed.hourlyRate, config, requireFuelDisplayEnabled = false)?.cost
         }
         ledger.onOfferEvaluated(parsed, if (negotiatePriceOnly) "NEGOCIA" else decided.decision.name, ledgerFuel, now)
+        if (!isSameOffer) logRouteSample(parsed, config, driverFix, decided.decision.name)
         statOffers++
         val kmFmt = parsed.pricePerKm?.let { String.format(br, "R$ %.2f/km", it) } ?: ""
         val totKmFmt = parsed.totalDistanceKm?.let { String.format(br, "%.1f km", it) } ?: ""
@@ -2045,6 +2047,29 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun fmtBr(v: Double): String = String.format(Locale("pt", "BR"), "%.2f", v)
+
+    /**
+     * Medicao da rota (passarela): anota a posicao do motorista (GPS) e o ponto do embarque/destino no mapa,
+     * junto com o km/min que a 99/Uber mostrou. Fica so no registro do celular; depois comparamos com a
+     * rota de moto real. Roda em paralelo: nao atrasa a decisao nem o toque.
+     */
+    private fun logRouteSample(parsed: ParsedRideOffer, config: FilterConfig, evalFix: DriverFix?, decision: String) {
+        val inRide = dualCoordinator.primaryRide != null || System.currentTimeMillis() - lastActiveRideScreenAt <= 90_000L
+        val fix = evalFix ?: runCatching { DriverLocationProvider.current(applicationContext) }.getOrNull()
+        serviceScope.launch {
+            fun pt(p: Pair<Double, Double>?) = p?.let { String.format(Locale.US, "%.5f,%.5f", it.first, it.second) } ?: "?"
+            fun num(v: Double?, f: String) = v?.let { String.format(Locale.US, f, it) } ?: "?"
+            val pick = parsed.pickupAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() }
+            val drop = parsed.dropoffAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() }
+            val me = fix?.let { String.format(Locale.US, "%.5f,%.5f ±%.0fm %ds", it.lat, it.lng, it.accuracyMeters, it.ageMs / 1000) } ?: "?"
+            log(
+                "[ROTA] ${parsed.appSource} | eu=$me | emb=${pt(pick)} ${num(parsed.pickupDistanceKm, "%.2f")}km " +
+                    "${num(parsed.pickupMinutes, "%.0f")}min | dest=${pt(drop)} ${num(parsed.dropoffDistanceKm, "%.2f")}km " +
+                    "${num(parsed.dropoffMinutes, "%.0f")}min | emCorrida=$inRide | decisao=$decision | " +
+                    "Emb=${parsed.pickupAddress.orEmpty().take(60)} | Dest=${parsed.dropoffAddress.orEmpty().take(60)}"
+            )
+        }
+    }
 
     /**
      * Tela "Sua oferta" da Negocia. So age quando FOI O APP que abriu o lapis (contraproposta em andamento):

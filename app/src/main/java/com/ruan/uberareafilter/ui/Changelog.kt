@@ -12,6 +12,12 @@ object Changelog {
 
     val releases: List<Release> = listOf(
         Release(
+            versionCode = 19, versionName = "2.6.2", date = "18/11/2026",
+            items = listOf(
+                Item("📏", "Medindo a rota real", "Para descobrir quantas vezes a 99 erra o km por causa de passarela, Av. Brasil e linha do trem, o app anota no registro, em cada corrida, onde você estava (GPS) e onde fica o embarque. Fica só no celular e não muda nada no funcionamento.")
+            )
+        ),
+        Release(
             versionCode = 18, versionName = "2.6.1", date = "18/11/2026",
             items = listOf(
                 Item("⏳", "Botão corrigido", "O texto ON/PAUSA aparece sempre inteiro e o botão do OFF também virou ampulheta: o ícone de cima abre o app mesmo com o filtro desligado.")
