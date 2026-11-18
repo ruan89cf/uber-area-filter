@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Marca do Filtro Inteligente para o botao flutuante: pino de mapa com um funil (filtro), fundo transparente. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- sombra suave para destacar em mapa claro ou escuro -->
+    <path
+        android:fillColor="#40000000"
+        android:pathData="M24,6 C15.2,6 8,13.2 8,22 C8,33 24,46 24,46 C24,46 40,33 40,22 C40,13.2 32.8,6 24,6 Z" />
+    <!-- pino com degrade verde -->
+    <path
+        android:pathData="M24,3.5 C15.2,3.5 8,10.7 8,19.5 C8,30.5 24,43.5 24,43.5 C24,43.5 40,30.5 40,19.5 C40,10.7 32.8,3.5 24,3.5 Z"
+        android:strokeWidth="1.6"
+        android:strokeColor="#0B5A34">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="12"
+                android:startY="5"
+                android:endX="36"
+                android:endY="40"
+                android:startColor="#3DF59A"
+                android:endColor="#00A85A" />
+        </aapt:attr>
+    </path>
+    <!-- funil (filtro) branco -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14.5,11.5 L33.5,11.5 C34.4,11.5 34.9,12.6 34.3,13.3 L27,21.8 L27,28.6 C27,29.1 26.7,29.6 26.3,29.8 L22.6,31.7 C21.9,32.1 21,31.6 21,30.8 L21,21.8 L13.7,13.3 C13.1,12.6 13.6,11.5 14.5,11.5 Z" />
+    <!-- brilho -->
+    <path
+        android:fillColor="#55FFFFFF"
+        android:pathData="M17,8.2 C19.2,6.9 21.6,6.2 24,6.2 L24,8.4 C22,8.4 20,9 18.2,10 Z" />
+</vector>

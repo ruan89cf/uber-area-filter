@@ -12,6 +12,15 @@ object Changelog {
 
     val releases: List<Release> = listOf(
         Release(
+            versionCode = 17, versionName = "2.6", date = "18/11/2026",
+            items = listOf(
+                Item("⏳", "Botão novo em ampulheta", "O ícone do app e o ON/PAUSA viraram um botão só: em cima o ícone (toque para abrir o app, sem passar pelas configurações do Android), embaixo o estado (toque para pausar/ligar). Arrastando, vão os dois juntos. Segurar continua abrindo o “🐞 Algo deu errado?”."),
+                Item("🎨", "Cores de cada app", "Com a 99 na frente: ON amarelo e PAUSA preto. Com a Uber: ON preto e PAUSA âmbar, como antes. Desligado continua vermelho. Ícone novo, sem fundo."),
+                Item("💬", "R$/h próprio na Negocia", "Em Filtros, “Mínimo por hora diferente na Negocia”: ligado, esse valor vale no lugar do mínimo normal só nas corridas Negocia (para aceitar e para calcular quanto pedir). Ex.: normal R$ 50/h e Negocia R$ 40/h → nas Negocia vale R$ 40/h."),
+                Item("🔁", "“Aceitar se tocar de novo” só na 99", "A Uber não repete a mesma corrida, então o botão agora só aparece nas corridas da 99.")
+            )
+        ),
+        Release(
             versionCode = 16, versionName = "2.5", date = "18/11/2026",
             items = listOf(
                 Item("💬", "Negocia no automático", "Se o valor do passageiro passa nas suas regras, o app aceita como uma corrida normal. Se só o preço não bate, ele calcula o menor valor que passa no seu R$/km e R$/h e envia a contraproposta sozinho: toca no lápis, escreve o valor no campo (sem usar o teclado), confere na tela e toca em “Confirmar oferta”. Se algo sair diferente, ele desiste e mostra o valor para você digitar. Se o passageiro aceitar, a corrida entra no painel de Ganhos com o valor pedido."),

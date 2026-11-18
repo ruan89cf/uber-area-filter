@@ -608,6 +608,28 @@ class UberAccessibilityService : AccessibilityService() {
         return state.preferredAppSource to state.uberWindowBounds
     }
 
+    /** App de motorista na frente, para as cores do botao: 99 = amarelo, Uber = preto. */
+    private fun floatingBrand(config: FilterConfig): String {
+        val pkg = currentForegroundPkg.lowercase()
+        return when {
+            uberPkgKeywords.any { pkg.contains(it) } -> "UBER"
+            pkg.contains("99") -> "99"
+            config.nineNineModuleEnabled && !config.uberModuleEnabled -> "99"
+            else -> "UBER"
+        }
+    }
+
+    /** Toque no icone da ampulheta: abre o Filtro Inteligente (sem passar pelas configuracoes do Android). */
+    private fun openMainApp() {
+        runCatching {
+            val intent = Intent(this, com.ruan.uberareafilter.ui.MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            }
+            startActivity(intent)
+            log("[BOTAO] Abri o app pelo ícone do botão flutuante")
+        }.onFailure { log("[BOTAO] ⚠ Falha ao abrir o app: ${it.message}") }
+    }
+
     private fun syncFloatingPill(config: FilterConfig, isMonitoredApp: Boolean) {
         if (!isMonitoredApp) {
             overlayManager.hideBanner()
@@ -642,6 +664,8 @@ class UberAccessibilityService : AccessibilityService() {
                 triggerHeartPromptManualOrRating(passengerName = null)
             },
             rideLockBadgeText = lockBadgeText,
+            brand = floatingBrand(config),
+            onOpenApp = { openMainApp() },
             onReleaseRideLock = {
                 val rel = dualCoordinator.releaseManually()
                 if (rel != null) {
@@ -1458,7 +1482,9 @@ class UberAccessibilityService : AccessibilityService() {
             null
         }
         val evalStartedAt = System.currentTimeMillis()
-        val result = evaluator.evaluate(parsed, config, driverFix)
+        // Negocia: mesmas regras, mas com o R$/h minimo da Negocia quando ele esta ligado
+        val ruleConfig = if (parsed.isNegotiable) config.forNegotiation() else config
+        val result = evaluator.evaluate(parsed, ruleConfig, driverFix)
         val evalMs = System.currentTimeMillis() - evalStartedAt
         val conflict = dualCoordinator.evaluateOfferConflict(parsed, config)
         val wantsAutoReject = result.decision == Decision.OUTSIDE_AREA ||
@@ -1545,7 +1571,7 @@ class UberAccessibilityService : AccessibilityService() {
         // So o preco atrapalha (com o minimo das suas regras ela passaria em tudo): o app pede o valor
         // minimo (lapis -> escreve o valor -> Confirmar oferta). Area, nota, bloqueio... = recusa normal.
         val negotiation = if (parsed.isNegotiable && chainPlan == null) {
-            runCatching { NegotiationAdvisor.advise(parsed, config) }.getOrNull()
+            runCatching { NegotiationAdvisor.advise(parsed, ruleConfig) }.getOrNull()
         } else {
             null
         }
@@ -1556,7 +1582,7 @@ class UberAccessibilityService : AccessibilityService() {
             (decided.decision == Decision.OUTSIDE_AREA || decided.decision == Decision.UNCERTAIN)
         ) {
             val atMin = runCatching {
-                evaluator.evaluate(NegotiationAdvisor.withPrice(parsed, negotiation.minPrice), config, driverFix)
+                evaluator.evaluate(NegotiationAdvisor.withPrice(parsed, negotiation.minPrice), ruleConfig, driverFix)
             }.getOrNull()
             val priceOnly = atMin != null &&
                 (atMin.decision == Decision.INSIDE_AREA || atMin.decision == Decision.INTER_ZONE)
@@ -1663,8 +1689,10 @@ class UberAccessibilityService : AccessibilityService() {
         }
         // Botao discreto grudado no card: so quando o app NAO vai aceitar sozinho (as vezes o app erra).
         // Na Negocia em que so o preco atrapalha, nao: o botao aceitaria pelo valor baixo do passageiro.
+        // So na 99: e ela que toca a mesma corrida de novo (a Uber nao repete a oferta)
         val quickLabel = if (override == null && !willAutoAccept && signature != null &&
-            decided.decision != Decision.UNKNOWN_KEEP && !negotiatePriceOnly
+            decided.decision != Decision.UNKNOWN_KEEP && !negotiatePriceOnly &&
+            parsed.appSource == "99"
         ) QUICK_ACCEPT_LABEL else null
         val quickCallback: (() -> Unit)? = if (quickLabel != null && signature != null) {
             { onQuickAcceptTapped(parsed, signature) }

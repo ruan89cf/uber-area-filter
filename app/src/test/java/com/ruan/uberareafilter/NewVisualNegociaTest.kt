@@ -376,6 +376,24 @@ class NewVisualNegociaTest {
     }
 
     @Test
+    fun negociaOwnHourlyReplacesTheDefaultOnlyWhenEnabled() {
+        // padrao R$ 50/h; Negocia ligada com R$ 40/h -> vale 40 (so nas Negocia)
+        val p = parse(negocia0759)!!                      // 5 + 28 min + 2 de espera = 35 min
+        val base = priceRules.copy(filterByPricePerKmEnabled = false, minHourlyRate = 50.0)
+        val off = base.copy(negociaHourlyEnabled = false, negociaMinHourlyRate = 40.0)
+        val on = base.copy(negociaHourlyEnabled = true, negociaMinHourlyRate = 40.0)
+        assertEquals(50.0, off.forNegotiation().minHourlyRate, 0.001)
+        assertEquals(40.0, on.forNegotiation().minHourlyRate, 0.001)
+        assertEquals(29.17, NegotiationAdvisor.advise(p, off.forNegotiation())!!.minPrice, 0.001) // 50/h
+        assertEquals(23.34, NegotiationAdvisor.advise(p, on.forNegotiation())!!.minPrice, 0.001)  // 40/h
+        // as outras regras continuam: R$/km 1,20 ainda pede 23,52
+        val withKm = on.copy(filterByPricePerKmEnabled = true, minPricePerKm = 1.20)
+        assertEquals(23.52, NegotiationAdvisor.advise(p, withKm.forNegotiation())!!.minPrice, 0.001)
+        // ligar a Negocia liga o filtro de R$/h para ela, mesmo com o R$/h padrao desligado
+        assertTrue(on.copy(filterByHourlyRateEnabled = false).forNegotiation().filterByHourlyRateEnabled)
+    }
+
+    @Test
     fun counterOfferEditorScreenIsNeverAnOffer() {
         // 11:26 (print 59332): lapis da Negocia aberto ("Sua oferta" + teclado). Nao pode tocar em nada.
         val editor = listOf(

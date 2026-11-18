@@ -84,6 +84,10 @@ data class FilterConfig(
     val minHourlyRate: Double = 30.0,
     val uberCustomHourlyEnabled: Boolean = false,
     val uberMinHourlyRate: Double = 30.0,
+    // Negocia (99): R$/h minimo proprio. Ligado, vale NO LUGAR do R$/h padrao so nas corridas Negocia
+    // (aceitar e calcular a contraproposta); as outras regras (R$/km, area, nota...) continuam as mesmas.
+    val negociaHourlyEnabled: Boolean = false,
+    val negociaMinHourlyRate: Double = 40.0,
     val useNetHourlyRate: Boolean = false,
     // R$ minimo por KM (ex.: 1,20): abaixo disso recusa. Desligado por padrao.
     val filterByPricePerKmEnabled: Boolean = false,
@@ -148,6 +152,7 @@ data class FilterConfig(
         "totalKm" to if (filterByTotalDistEnabled) "max $maxTotalDistanceKm" else "off",
         "rsHora" to if (filterByHourlyRateEnabled) "min $minHourlyRate liq=$useNetHourlyRate" else "off",
         "rsHoraUber" to if (uberCustomHourlyEnabled) "min $uberMinHourlyRate" else "off",
+        "rsHoraNegocia" to if (negociaHourlyEnabled) "min $negociaMinHourlyRate" else "off",
         "rsKm" to if (filterByPricePerKmEnabled) "min $minPricePerKm" else "off",
         "combustivel" to if (fuelCostEnabled) "$fuelType R$$fuelPricePerUnit ${kmPerUnit}km" else "off",
         "zonas" to "${mapZones.count { it.mode == ZoneMode.ALLOWED }} perm/${mapZones.count { it.mode == ZoneMode.BLOCKED }} proib",
@@ -162,6 +167,10 @@ data class FilterConfig(
         "raioX" to "$debugMode/$xrayDiagnosticEnabled",
         "prints" to "$saveRideScreenshotsEnabled/ate $maxRideHistory"
     )
+
+    /** Regras para uma corrida Negocia: igual, so troca o R$/h minimo pelo da Negocia (se ligado). */
+    fun forNegotiation(): FilterConfig =
+        if (negociaHourlyEnabled) copy(minHourlyRate = negociaMinHourlyRate, filterByHourlyRateEnabled = true) else this
 
     fun effectiveMinHourlyRate(appSource: String): Double =
         if (appSource.equals("UBER", ignoreCase = true) && uberCustomHourlyEnabled) {

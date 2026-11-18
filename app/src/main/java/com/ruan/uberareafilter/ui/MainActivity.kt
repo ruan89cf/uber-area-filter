@@ -297,6 +297,8 @@ class MainActivity : AppCompatActivity() {
         binding.edtOffButtonMinutes.setText(config.offButtonMinutes.toString())
         binding.switchUberCustomHourly.isChecked = config.uberCustomHourlyEnabled
         binding.edtUberMinHourly.setText(config.uberMinHourlyRate.toString())
+        binding.switchNegociaHourly.isChecked = config.negociaHourlyEnabled
+        binding.edtNegociaMinHourly.setText(config.negociaMinHourlyRate.toString())
         binding.switchUseNetHourlyRate.isChecked = config.useNetHourlyRate
         binding.switchRoundDownNetHourly.isChecked = config.roundDownNetHourlyRate
         binding.switchRoundDownNetHourly.isEnabled = config.useNetHourlyRate || config.fuelCostEnabled
@@ -535,6 +537,7 @@ class MainActivity : AppCompatActivity() {
             binding.switchChainApps,
             binding.switchRejectUberStops,
             binding.switchUberCustomHourly,
+            binding.switchNegociaHourly,
             binding.switchShowRideBanner,
             binding.switchRequireBoth,
             binding.switchAutoAcceptInterZone,
@@ -732,6 +735,8 @@ class MainActivity : AppCompatActivity() {
         val minPricePerKm = binding.edtMinPricePerKm.text?.toString()?.replace(",", ".")?.toDoubleOrNull()
             ?.takeIf { it in 0.01..50.0 } ?: 1.20
         val uberMinHourly = binding.edtUberMinHourly.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: minHourly
+        val negociaMinHourly = binding.edtNegociaMinHourly.text?.toString()?.replace(",", ".")?.toDoubleOrNull()
+            ?.takeIf { it in 1.0..500.0 } ?: 40.0
         val fuelPrice = binding.edtFuelPrice.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 6.29
         val kmPerUnit = binding.edtKmPerUnit.text?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 35.0
         val bannerDurationSec = (binding.edtBannerDurationSec.text?.toString()?.toIntOrNull() ?: 5).coerceIn(1, 30)
@@ -783,6 +788,8 @@ class MainActivity : AppCompatActivity() {
             offButtonMinutes = (binding.edtOffButtonMinutes.text?.toString()?.trim()?.toIntOrNull() ?: 10).coerceIn(0, 240),
             uberCustomHourlyEnabled = binding.switchUberCustomHourly.isChecked,
             uberMinHourlyRate = uberMinHourly,
+            negociaHourlyEnabled = binding.switchNegociaHourly.isChecked,
+            negociaMinHourlyRate = negociaMinHourly,
             useNetHourlyRate = binding.switchUseNetHourlyRate.isChecked,
             roundDownNetHourlyRate = binding.switchRoundDownNetHourly.isChecked,
             showRideInfoBannerEnabled = binding.switchShowRideBanner.isChecked,

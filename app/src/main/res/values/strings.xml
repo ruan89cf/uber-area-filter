@@ -96,6 +96,7 @@
     <string name="main_net_hourly">Descontar o combustível dessa conta</string>
     <string name="main_round_down">Arredondar para baixo (R$ 29,80 conta como R$ 29)</string>
     <string name="main_uber_hourly">Mínimo por hora diferente na Uber</string>
+    <string name="main_negocia_hourly">Mínimo por hora diferente na Negocia (99)</string>
     <string name="main_dist_sub">Não rodar longe para buscar nem para levar.</string>
     <string name="main_dist_title">Distância</string>
     <string name="main_filter_total_dist">Tamanho máximo da corrida (busca + viagem)</string>

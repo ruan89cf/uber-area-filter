@@ -882,6 +882,36 @@
                                 android:text="30.0" />
                         </com.google.android.material.textfield.TextInputLayout>
                     </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchNegociaHourly"
+                            style="@style/Widget.Filtro.Switch"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="12dp"
+                            android:layout_weight="1"
+                            android:text="@string/main_negocia_hourly" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="104dp"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_hourly">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtNegociaMinHourly"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textAppearance="@style/TextAppearance.Filtro.NumberInput"
+                                android:inputType="numberDecimal"
+                                android:text="40.0" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

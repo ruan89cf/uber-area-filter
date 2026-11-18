@@ -205,6 +205,7 @@ object HelpCatalog {
             "R$ 9 por 10 km = R$ 0,90 por km. Com mínimo de R$ 1,20, recusa.",
             R.drawable.ic_route, Accent.AMBER
         ),
+        "switchNegociaHourly" to Help("Mínimo diferente na Negocia", "Nas corridas Negocia da 99 você pode pedir o valor. Ligado, o mínimo por hora daqui vale no lugar do mínimo normal, só nessas corridas: para aceitar e para calcular a contraproposta. As outras regras (R$/km, área, nota) continuam as mesmas.", "Seu mínimo normal é R$ 30/h e aqui está R$ 45/h: uma Negocia que paga R$ 35/h não é aceita; o app pede o valor que dá R$ 45/h.", R.drawable.ic_money, Accent.AMBER),
         "switchUberCustomHourly" to Help("Mínimo diferente na Uber", "Use um mínimo por hora só para a Uber, que costuma pagar diferente da 99.", null, R.drawable.ic_money, Accent.AMBER),
         "switchFilterTotalDist" to Help("Tamanho máximo da corrida", "Recusa corridas cuja distância total (ir buscar + levar) passa do limite.", "Limite 15 km: uma corrida de 3 km de busca + 14 km de viagem é recusada.", R.drawable.ic_route, Accent.BLUE),
         "switchFilterPickupDist" to Help("Distância até o passageiro", "Recusa quando o passageiro está longe demais de você. Ir buscar longe é rodar sem ganhar.", "Limite 2,5 km: passageiro a 3,1 km é recusado.", R.drawable.ic_route, Accent.BLUE),

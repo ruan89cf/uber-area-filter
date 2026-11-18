@@ -92,6 +92,8 @@ class OverlayManager(private val context: Context) {
     fun isBannerVisible(): Boolean = bannerShowing && bannerContainer != null
 
     // Botao flutuante discreto (ON/PAUSA) e chip opcional de trava em corrida (modo simultaneo)
+    // Ampulheta: em cima o icone do app (abre o app), embaixo o estado ON/PAUSA. Uma janela so: arrasta junto.
+    private var floatingRootView: LinearLayout? = null
     private var floatingPillView: TextView? = null
     private var floatingParams: WindowManager.LayoutParams? = null
     private var rideLockChipView: TextView? = null
@@ -117,12 +119,12 @@ class OverlayManager(private val context: Context) {
     fun suppressOverlaysForTap(durationMs: Long = 260L) {
         val hideAction = {
             bannerContainer?.visibility = View.GONE
-            floatingPillView?.visibility = View.GONE
+            floatingRootView?.visibility = View.GONE
             rideLockChipView?.visibility = View.GONE
             quickView?.visibility = View.GONE
             mainHandler.postDelayed({
                 bannerContainer?.visibility = View.VISIBLE
-                floatingPillView?.visibility = View.VISIBLE
+                floatingRootView?.visibility = View.VISIBLE
                 rideLockChipView?.visibility = View.VISIBLE
                 quickView?.visibility = View.VISIBLE
             }, durationMs)
@@ -791,7 +793,11 @@ class OverlayManager(private val context: Context) {
         onToggleFilter: () -> Unit,
         onLongPressFavorite: () -> Unit,
         rideLockBadgeText: String? = null,
-        onReleaseRideLock: (() -> Unit)? = null
+        onReleaseRideLock: (() -> Unit)? = null,
+        /** App na frente ("99" ou "UBER"): muda as cores do botao. */
+        brand: String? = null,
+        /** Toque no icone de cima: abre o app. */
+        onOpenApp: (() -> Unit)? = null
     ) {
         if (!canRenderOverlay() || !visible) {
             hideFloatingControl()
@@ -799,32 +805,49 @@ class OverlayManager(private val context: Context) {
         }
 
         mainHandler.post {
-            val pill = floatingPillView ?: createFloatingPill(onToggleFilter, onLongPressFavorite).also {
-                floatingPillView = it
+            if (floatingRootView == null) {
+                val root = createFloatingControl(onToggleFilter, onLongPressFavorite, onOpenApp)
                 val params = createFloatingPillParams()
-                floatingParams = params
                 try {
-                    windowManager.addView(it, params)
+                    windowManager.addView(root, params)
                 } catch (_: Exception) {
                     floatingPillView = null
                     return@post
                 }
+                floatingRootView = root
+                floatingParams = params
             }
+            val pill = floatingPillView ?: return@post
 
+            // Na 99: ON amarelo (estilo 99) e PAUSA preto. Na Uber: ON preto e PAUSA ambar. OFF sempre vermelho.
+            val is99 = brand == "99"
             when (runState) {
                 com.ruan.uberareafilter.model.RunState.ON -> {
-                    pill.text = pillLabel(Color.parseColor("#06C167"), "ON")
-                    pill.background = ringedPillBackground(Color.parseColor("#F2111111"), Color.parseColor("#B8FFFFFF"), 24)
+                    if (is99) {
+                        pill.text = pillLabel(Color.parseColor("#0A7A3C"), "ON")
+                        pill.setTextColor(Color.parseColor("#111111"))
+                        pill.background = ringedPillBackground(Color.parseColor("#F5FFD400"), Color.parseColor("#B8111111"), 24)
+                    } else {
+                        pill.text = pillLabel(Color.parseColor("#06C167"), "ON")
+                        pill.setTextColor(Color.WHITE)
+                        pill.background = ringedPillBackground(Color.parseColor("#F2111111"), Color.parseColor("#B8FFFFFF"), 24)
+                    }
                     pill.contentDescription = "Filtro ligado. Toque para pausar (só leitura)."
                 }
                 com.ruan.uberareafilter.model.RunState.PAUSED -> {
-                    // Ambar: continua lendo e mostrando o card, mas nao toca em nada
+                    // Continua lendo e mostrando o card, mas nao toca em nada
                     pill.text = pillLabel(Color.parseColor("#FFDD00"), "PAUSA")
-                    pill.background = ringedPillBackground(Color.parseColor("#F27A5800"), Color.parseColor("#B8FFDD00"), 24)
+                    pill.setTextColor(Color.WHITE)
+                    pill.background = if (is99) {
+                        ringedPillBackground(Color.parseColor("#F2111111"), Color.parseColor("#B8FFD400"), 24)
+                    } else {
+                        ringedPillBackground(Color.parseColor("#F27A5800"), Color.parseColor("#B8FFDD00"), 24)
+                    }
                     pill.contentDescription = "Pausado: só lê as corridas. Toque para desligar a leitura de tela."
                 }
                 com.ruan.uberareafilter.model.RunState.OFF -> {
                     pill.text = pillLabel(Color.parseColor("#FFDAD5"), "OFF")
+                    pill.setTextColor(Color.WHITE)
                     pill.background = ringedPillBackground(Color.parseColor("#F2D0101F"), Color.parseColor("#B8FFFFFF"), 24)
                     pill.contentDescription = "Desligado."
                 }
@@ -858,7 +881,7 @@ class OverlayManager(private val context: Context) {
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
                 x = pillParams?.x ?: dp(10)
-                y = (pillParams?.y ?: dp(240)) + dp(52)
+                y = (pillParams?.y ?: dp(240)) + lockChipOffsetPx()
             }
             rideLockParams = params
             try {
@@ -893,13 +916,17 @@ class OverlayManager(private val context: Context) {
     /** Posicao atual do botao flutuante (para o botao OFF aparecer no mesmo lugar). */
     fun floatingPillPosition(): Pair<Int, Int>? = floatingParams?.let { it.x to it.y }
 
+    /** A etiqueta da trava 99/Uber fica logo abaixo da ampulheta. */
+    private fun lockChipOffsetPx(): Int = floatingRootView?.height?.takeIf { it > 0 }?.plus(dp(6)) ?: dp(112)
+
     fun hideFloatingControl() {
         mainHandler.post {
-            floatingPillView?.let { view ->
+            floatingRootView?.let { view ->
                 try {
                     windowManager.removeView(view)
                 } catch (_: Exception) {}
             }
+            floatingRootView = null
             floatingPillView = null
             floatingParams = null
             rideLockChipView?.let { view ->
@@ -1181,12 +1208,17 @@ class OverlayManager(private val context: Context) {
         return root
     }
 
+    /**
+     * Ampulheta flutuante: icone do app em cima (toque = abre o app), "pescoco" e o estado embaixo
+     * (toque = ON -> PAUSA -> OFF). Segurar = "🐞 Algo deu errado?". Arrastar move tudo junto.
+     */
     @SuppressLint("ClickableViewAccessibility")
-    private fun createFloatingPill(
+    private fun createFloatingControl(
         onToggleFilter: () -> Unit,
-        onLongPressFavorite: () -> Unit
-    ): TextView {
-        return TextView(context).apply {
+        onLongPressFavorite: () -> Unit,
+        onOpenApp: (() -> Unit)?
+    ): LinearLayout {
+        val pill = TextView(context).apply {
             text = pillLabel(Color.parseColor("#06C167"), "ON")
             gravity = Gravity.CENTER
             minWidth = dp(64)
@@ -1198,6 +1230,34 @@ class OverlayManager(private val context: Context) {
             background = ringedPillBackground(Color.parseColor("#F2111111"), Color.parseColor("#B8FFFFFF"), 24)
             setPadding(dp(18), dp(10), dp(18), dp(10))
             elevation = dp(8).toFloat()
+        }
+        floatingPillView = pill
+        val logo = android.widget.ImageView(context).apply {
+            setImageResource(com.ruan.uberareafilter.R.drawable.ic_logo_mark)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#E6121212"))
+                setStroke(dp(2), Color.parseColor("#B8FFFFFF"))
+            }
+            setPadding(dp(7), dp(7), dp(7), dp(7))
+            elevation = dp(8).toFloat()
+            contentDescription = "Abrir o Filtro Inteligente"
+            layoutParams = LinearLayout.LayoutParams(dp(50), dp(50))
+        }
+        val neck = View(context).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(3).toFloat()
+                setColor(Color.parseColor("#B8FFFFFF"))
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(12), dp(6))
+        }
+
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(logo)
+            addView(neck)
+            addView(pill)
 
             var initialX = 0
             var initialY = 0
@@ -1239,7 +1299,7 @@ class OverlayManager(private val context: Context) {
                                 rideLockChipView?.let { lockView ->
                                     rideLockParams?.let { lp ->
                                         lp.x = params.x
-                                        lp.y = params.y + dp(52)
+                                        lp.y = params.y + lockChipOffsetPx()
                                         windowManager.updateViewLayout(lockView, lp)
                                     }
                                 }
@@ -1255,7 +1315,14 @@ class OverlayManager(private val context: Context) {
                             event.action == MotionEvent.ACTION_UP &&
                             System.currentTimeMillis() >= ignorePillTouchesUntilMs
                         ) {
-                            onToggleFilter()
+                            // Metade de cima (icone + pescoco) abre o app; o resto liga/pausa
+                            val onLogo = event.y < logo.bottom + dp(3)
+                            if (onLogo && onOpenApp != null) {
+                                performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                                onOpenApp()
+                            } else {
+                                onToggleFilter()
+                            }
                         }
                         true
                     }

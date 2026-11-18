@@ -158,6 +158,8 @@ class ConfigRepository(private val appContext: Context) {
             minHourlyRate = getDouble(KEY_MIN_HOURLY, 30.0),
             uberCustomHourlyEnabled = prefs.getBoolean(KEY_UBER_CUSTOM_HOURLY, false),
             uberMinHourlyRate = getDouble(KEY_UBER_MIN_HOURLY, 30.0),
+            negociaHourlyEnabled = prefs.getBoolean(KEY_NEGOCIA_HOURLY, false),
+            negociaMinHourlyRate = getDouble(KEY_NEGOCIA_MIN_HOURLY, 40.0),
             useNetHourlyRate = prefs.getBoolean(KEY_USE_NET_HOURLY, false),
             filterByPricePerKmEnabled = prefs.getBoolean(KEY_FILTER_PRICE_PER_KM, false),
             minPricePerKm = getDouble(KEY_MIN_PRICE_PER_KM, 1.20),
@@ -232,6 +234,8 @@ class ConfigRepository(private val appContext: Context) {
             .putLong(KEY_MIN_HOURLY, java.lang.Double.doubleToRawLongBits(config.minHourlyRate))
             .putBoolean(KEY_UBER_CUSTOM_HOURLY, config.uberCustomHourlyEnabled)
             .putLong(KEY_UBER_MIN_HOURLY, java.lang.Double.doubleToRawLongBits(config.uberMinHourlyRate))
+            .putBoolean(KEY_NEGOCIA_HOURLY, config.negociaHourlyEnabled)
+            .putLong(KEY_NEGOCIA_MIN_HOURLY, java.lang.Double.doubleToRawLongBits(config.negociaMinHourlyRate))
             .putBoolean(KEY_USE_NET_HOURLY, config.useNetHourlyRate)
             .putBoolean(KEY_FILTER_PRICE_PER_KM, config.filterByPricePerKmEnabled)
             .putLong(KEY_MIN_PRICE_PER_KM, java.lang.Double.doubleToRawLongBits(config.minPricePerKm))
@@ -865,6 +869,8 @@ class ConfigRepository(private val appContext: Context) {
         private const val KEY_ZONE_CARD_COLORS = "zone_card_colors_enabled"
         private const val KEY_UBER_CUSTOM_HOURLY = "uber_custom_hourly_enabled"
         private const val KEY_UBER_MIN_HOURLY = "uber_min_hourly_rate"
+        private const val KEY_NEGOCIA_HOURLY = "negocia_hourly_enabled"
+        private const val KEY_NEGOCIA_MIN_HOURLY = "negocia_min_hourly_rate"
         private const val KEY_USE_NET_HOURLY = "use_net_hourly_rate"
         private const val KEY_ROUND_DOWN_NET_HOURLY = "round_down_net_hourly_rate"
         private const val KEY_DARK_THEME = "dark_theme_enabled"
