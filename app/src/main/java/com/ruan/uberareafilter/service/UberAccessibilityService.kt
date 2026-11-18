@@ -46,6 +46,8 @@ import com.ruan.uberareafilter.engine.Decision
 import com.ruan.uberareafilter.engine.DualRideCoordinator
 import com.ruan.uberareafilter.engine.FuelCalculator
 import com.ruan.uberareafilter.engine.NegotiationAdvisor
+import com.ruan.uberareafilter.engine.TrafficCheck
+import com.ruan.uberareafilter.map.TrafficRouteClient
 import com.ruan.uberareafilter.engine.ParsedRideOffer
 import com.ruan.uberareafilter.engine.RideLedgerTracker
 import com.ruan.uberareafilter.engine.RideProgress
@@ -70,6 +72,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.async
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -1957,6 +1961,34 @@ class UberAccessibilityService : AccessibilityService() {
                 } else if (autoOn && now - lastAcceptAt > 1200L) {
                     lastActionAt = now
                     lastActionAtByApp[parsed.appSource] = now
+                    // Ultimo criterio: o transito de agora. Sem resposta = segue a estimativa da 99.
+                    val traffic = checkTrafficBeforeAccept(parsed, ruleConfig, driverFix)
+                    if (traffic != null && !traffic.passes) {
+                        val status = if (config.autoRejectEnabled) "RECUSANDO" else "RECUSA OFF"
+                        maybeShowBanner(
+                            RideCardModel(
+                                decision = Decision.OUTSIDE_AREA,
+                                appSource = parsed.appSource,
+                                title = "Trânsito pesado agora",
+                                statusLabel = status,
+                                priceText = priceFmt.ifEmpty { null },
+                                hourlyText = traffic.hourlyNow?.let { String.format(br, "R$ %.0f/h", it) } ?: hrFmt.ifEmpty { null },
+                                secondaryMetrics = secondaryList,
+                                fuelText = fuelEstimate?.costText,
+                                profitText = profitLabel,
+                                profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                                checklist = "✘ ${traffic.summary()}\n$finalChecklist",
+                                autoHideMs = bannerHideMs
+                            )
+                        )
+                        scheduleShotWithCard("TRÂNSITO")
+                        log("[TRANSITO] $appTag ${traffic.summary()}: abaixo das suas regras, não aceitei")
+                        if (config.autoRejectEnabled) {
+                            ledger.onAutoRejected(parsed, "Trânsito: ${traffic.summary()}", now)
+                            executeSurgicalReject(parsed, config, appTag, now)
+                        }
+                        return
+                    }
                     if (config.humanDelayEnabled) {
                         delay(Random.nextLong(280L, 520L))
                     }
@@ -2051,6 +2083,41 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun fmtBr(v: Double): String = String.format(Locale("pt", "BR"), "%.2f", v)
+
+    private var lastTrafficFingerprint = ""
+    private var lastTrafficVerdict: TrafficCheck.Verdict? = null
+
+    /**
+     * Tempo com o transito de agora (Google Routes) para a corrida que o app vai aceitar.
+     * Devolve null quando nao deu para consultar (sem chave, sem GPS, sem internet, demorou mais de 1,5 s):
+     * nesse caso o aceite segue pela estimativa da 99, como sempre.
+     */
+    private suspend fun checkTrafficBeforeAccept(parsed: ParsedRideOffer, config: FilterConfig, evalFix: DriverFix?): TrafficCheck.Verdict? {
+        if (!TrafficCheck.shouldCheck(parsed, config)) return null
+        if (parsed.fingerprint.isNotBlank() && parsed.fingerprint == lastTrafficFingerprint) return lastTrafficVerdict
+        val startedAt = System.currentTimeMillis()
+        val verdict = withTimeoutOrNull(TRAFFIC_BUDGET_MS) {
+            val fix = evalFix ?: runCatching { DriverLocationProvider.current(applicationContext) }.getOrNull()
+            val me = fix?.let { it.lat to it.lng } ?: return@withTimeoutOrNull null
+            val pick = parsed.pickupAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() } ?: return@withTimeoutOrNull null
+            val drop = parsed.dropoffAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() } ?: return@withTimeoutOrNull null
+            // Roda a parte: se a internet travar, o prazo vence e o aceite segue sem esperar a conexao
+            val call = serviceScope.async(Dispatchers.IO) {
+                TrafficRouteClient.minutesWithTraffic(config.trafficApiKey.trim(), me, pick, drop, TRAFFIC_BUDGET_MS.toInt())
+            }
+            val res = call.await() ?: return@withTimeoutOrNull null
+            TrafficCheck.judge(parsed, res.minutes, config)
+        }
+        val ms = System.currentTimeMillis() - startedAt
+        lastTrafficFingerprint = parsed.fingerprint
+        lastTrafficVerdict = verdict
+        if (verdict == null) {
+            log("[TRANSITO] [${parsed.appSource}] sem resposta em ${ms} ms (internet/GPS/endereço): segui a estimativa da 99")
+        } else {
+            log("[TRANSITO] [${parsed.appSource}] ${verdict.summary()} em ${ms} ms • ${if (verdict.passes) "passa" else "NÃO passa"} nas regras")
+        }
+        return verdict
+    }
 
     /**
      * Medicao da rota (passarela): anota a posicao do motorista (GPS) e o ponto do embarque/destino no mapa,
@@ -2629,6 +2696,8 @@ class UberAccessibilityService : AccessibilityService() {
         private const val QUICK_ACCEPT_WINDOW_MS = 20 * 60_000L
         /** Card da Negocia fica pelo menos 12 s: da tempo de ler quanto pedir antes de tocar no botao da 99. */
         private const val NEGOTIATE_CARD_MIN_MS = 12_000L
+        /** Tempo maximo esperando o transito antes de aceitar pela estimativa da 99. */
+        private const val TRAFFIC_BUDGET_MS = 1_500L
 
         private const val TAG = "UberFilter"
 

@@ -88,6 +88,11 @@ data class FilterConfig(
     // (aceitar e calcular a contraproposta); as outras regras (R$/km, area, nota...) continuam as mesmas.
     val negociaHourlyEnabled: Boolean = false,
     val negociaMinHourlyRate: Double = 40.0,
+    // Ultima checagem antes de aceitar: tempo com o transito de agora (Google Routes, chave do motorista).
+    // Sem chave / sem resposta em 1,5 s = aceita pela estimativa da 99. 0 km = consulta todas.
+    val trafficCheckEnabled: Boolean = true,
+    val trafficApiKey: String = "",
+    val trafficMinTotalKm: Double = 0.0,
     val useNetHourlyRate: Boolean = false,
     // R$ minimo por KM (ex.: 1,20): abaixo disso recusa. Desligado por padrao.
     val filterByPricePerKmEnabled: Boolean = false,
@@ -153,6 +158,7 @@ data class FilterConfig(
         "rsHora" to if (filterByHourlyRateEnabled) "min $minHourlyRate liq=$useNetHourlyRate" else "off",
         "rsHoraUber" to if (uberCustomHourlyEnabled) "min $uberMinHourlyRate" else "off",
         "rsHoraNegocia" to if (negociaHourlyEnabled) "min $negociaMinHourlyRate" else "off",
+        "transito" to if (trafficCheckEnabled) "a partir de ${trafficMinTotalKm}km chave=${if (trafficApiKey.isBlank()) "falta" else "ok"}" else "off",
         "rsKm" to if (filterByPricePerKmEnabled) "min $minPricePerKm" else "off",
         "combustivel" to if (fuelCostEnabled) "$fuelType R$$fuelPricePerUnit ${kmPerUnit}km" else "off",
         "zonas" to "${mapZones.count { it.mode == ZoneMode.ALLOWED }} perm/${mapZones.count { it.mode == ZoneMode.BLOCKED }} proib",

@@ -160,6 +160,9 @@ class ConfigRepository(private val appContext: Context) {
             uberMinHourlyRate = getDouble(KEY_UBER_MIN_HOURLY, 30.0),
             negociaHourlyEnabled = prefs.getBoolean(KEY_NEGOCIA_HOURLY, false),
             negociaMinHourlyRate = getDouble(KEY_NEGOCIA_MIN_HOURLY, 40.0),
+            trafficCheckEnabled = prefs.getBoolean(KEY_TRAFFIC_CHECK, true),
+            trafficApiKey = prefs.getString(KEY_TRAFFIC_API_KEY, "").orEmpty(),
+            trafficMinTotalKm = getDouble(KEY_TRAFFIC_MIN_KM, 0.0),
             useNetHourlyRate = prefs.getBoolean(KEY_USE_NET_HOURLY, false),
             filterByPricePerKmEnabled = prefs.getBoolean(KEY_FILTER_PRICE_PER_KM, false),
             minPricePerKm = getDouble(KEY_MIN_PRICE_PER_KM, 1.20),
@@ -236,6 +239,9 @@ class ConfigRepository(private val appContext: Context) {
             .putLong(KEY_UBER_MIN_HOURLY, java.lang.Double.doubleToRawLongBits(config.uberMinHourlyRate))
             .putBoolean(KEY_NEGOCIA_HOURLY, config.negociaHourlyEnabled)
             .putLong(KEY_NEGOCIA_MIN_HOURLY, java.lang.Double.doubleToRawLongBits(config.negociaMinHourlyRate))
+            .putBoolean(KEY_TRAFFIC_CHECK, config.trafficCheckEnabled)
+            .putString(KEY_TRAFFIC_API_KEY, config.trafficApiKey.trim())
+            .putLong(KEY_TRAFFIC_MIN_KM, java.lang.Double.doubleToRawLongBits(config.trafficMinTotalKm))
             .putBoolean(KEY_USE_NET_HOURLY, config.useNetHourlyRate)
             .putBoolean(KEY_FILTER_PRICE_PER_KM, config.filterByPricePerKmEnabled)
             .putLong(KEY_MIN_PRICE_PER_KM, java.lang.Double.doubleToRawLongBits(config.minPricePerKm))
@@ -871,6 +877,9 @@ class ConfigRepository(private val appContext: Context) {
         private const val KEY_UBER_MIN_HOURLY = "uber_min_hourly_rate"
         private const val KEY_NEGOCIA_HOURLY = "negocia_hourly_enabled"
         private const val KEY_NEGOCIA_MIN_HOURLY = "negocia_min_hourly_rate"
+        private const val KEY_TRAFFIC_CHECK = "traffic_check_enabled"
+        private const val KEY_TRAFFIC_API_KEY = "traffic_api_key"
+        private const val KEY_TRAFFIC_MIN_KM = "traffic_min_total_km"
         private const val KEY_USE_NET_HOURLY = "use_net_hourly_rate"
         private const val KEY_ROUND_DOWN_NET_HOURLY = "round_down_net_hourly_rate"
         private const val KEY_DARK_THEME = "dark_theme_enabled"

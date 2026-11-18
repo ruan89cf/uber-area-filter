@@ -12,6 +12,12 @@ object Changelog {
 
     val releases: List<Release> = listOf(
         Release(
+            versionCode = 21, versionName = "2.7", date = "18/11/2026",
+            items = listOf(
+                Item("🚦", "Trânsito de agora antes de aceitar", "Último passo antes de aceitar sozinho: o app pergunta ao Google quanto tempo a corrida leva com o trânsito de agora e refaz o R$/h. Av. Brasil parada e o R$ 40/h virou R$ 16/h? Ele não aceita. Sem chave, sem internet ou sem resposta em 1,5 s, aceita normal pela estimativa da 99. Precisa da chave grátis do Google em Filtros → “Conferir o trânsito antes de aceitar”.")
+            )
+        ),
+        Release(
             versionCode = 20, versionName = "2.6.3", date = "18/11/2026",
             items = listOf(
                 Item("🔔", "Notificação por cima do X", "Quando uma notificação (WhatsApp, etc.) cobria o “X Não afeta a TA”, o toque caía nela e a recusa precisava de 3 a 5 tentativas. Agora o app arrasta a notificação para cima antes de recusar."),

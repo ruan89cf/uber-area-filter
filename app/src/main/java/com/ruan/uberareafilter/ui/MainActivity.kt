@@ -299,6 +299,9 @@ class MainActivity : AppCompatActivity() {
         binding.edtUberMinHourly.setText(config.uberMinHourlyRate.toString())
         binding.switchNegociaHourly.isChecked = config.negociaHourlyEnabled
         binding.edtNegociaMinHourly.setText(config.negociaMinHourlyRate.toString())
+        binding.switchTrafficCheck.isChecked = config.trafficCheckEnabled
+        binding.edtTrafficMinKm.setText(config.trafficMinTotalKm.toString())
+        binding.edtTrafficApiKey.setText(config.trafficApiKey)
         binding.switchUseNetHourlyRate.isChecked = config.useNetHourlyRate
         binding.switchRoundDownNetHourly.isChecked = config.roundDownNetHourlyRate
         binding.switchRoundDownNetHourly.isEnabled = config.useNetHourlyRate || config.fuelCostEnabled
@@ -538,6 +541,7 @@ class MainActivity : AppCompatActivity() {
             binding.switchRejectUberStops,
             binding.switchUberCustomHourly,
             binding.switchNegociaHourly,
+            binding.switchTrafficCheck,
             binding.switchShowRideBanner,
             binding.switchRequireBoth,
             binding.switchAutoAcceptInterZone,
@@ -790,6 +794,9 @@ class MainActivity : AppCompatActivity() {
             uberMinHourlyRate = uberMinHourly,
             negociaHourlyEnabled = binding.switchNegociaHourly.isChecked,
             negociaMinHourlyRate = negociaMinHourly,
+            trafficCheckEnabled = binding.switchTrafficCheck.isChecked,
+            trafficMinTotalKm = binding.edtTrafficMinKm.text?.toString()?.replace(",", ".")?.toDoubleOrNull()?.coerceIn(0.0, 50.0) ?: 0.0,
+            trafficApiKey = binding.edtTrafficApiKey.text?.toString()?.trim().orEmpty(),
             useNetHourlyRate = binding.switchUseNetHourlyRate.isChecked,
             roundDownNetHourlyRate = binding.switchRoundDownNetHourly.isChecked,
             showRideInfoBannerEnabled = binding.switchShowRideBanner.isChecked,

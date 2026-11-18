@@ -912,6 +912,52 @@
                                 android:text="40.0" />
                         </com.google.android.material.textfield.TextInputLayout>
                     </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchTrafficCheck"
+                            style="@style/Widget.Filtro.Switch"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="12dp"
+                            android:layout_weight="1"
+                            android:text="@string/main_traffic_check" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Filtro.NumberField"
+                            android:layout_width="104dp"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/main_hint_traffic_km">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edtTrafficMinKm"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textAppearance="@style/TextAppearance.Filtro.NumberInput"
+                                android:inputType="numberDecimal"
+                                android:text="0" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.Filtro.NumberField"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:hint="@string/main_hint_traffic_key"
+                        app:endIconMode="password_toggle">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edtTrafficApiKey"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textPassword"
+                            android:singleLine="true" />
+                    </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
