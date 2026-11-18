@@ -8,13 +8,18 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
 import java.io.ByteArrayOutputStream
+import java.io.FileOutputStream
 import android.graphics.Path
 import android.graphics.Rect
 import android.location.Address
 import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
@@ -29,17 +34,29 @@ import com.ruan.uberareafilter.adb.AdbPairingReceiver
 import com.ruan.uberareafilter.adb.StandaloneAdbBridge
 import com.ruan.uberareafilter.driver.AppCaptureRouter
 import com.ruan.uberareafilter.driver.CaptureMode
+import com.ruan.uberareafilter.engine.AddressParser
 import com.ruan.uberareafilter.engine.AreaEvaluator
+import com.ruan.uberareafilter.engine.BlockedMatcher
+import com.ruan.uberareafilter.engine.ChainPlanner
+import com.ruan.uberareafilter.engine.CounterOfferFlow
+import com.ruan.uberareafilter.engine.DriverPresence
+import com.ruan.uberareafilter.engine.OfferSignature
 import com.ruan.uberareafilter.engine.Decision
 import com.ruan.uberareafilter.engine.DualRideCoordinator
 import com.ruan.uberareafilter.engine.FuelCalculator
+import com.ruan.uberareafilter.engine.NegotiationAdvisor
 import com.ruan.uberareafilter.engine.ParsedRideOffer
+import com.ruan.uberareafilter.engine.RideLedgerTracker
+import com.ruan.uberareafilter.engine.RideProgress
+import com.ruan.uberareafilter.storage.EarningsStore
 import com.ruan.uberareafilter.model.FavoriteRideItem
 import com.ruan.uberareafilter.model.FilterConfig
 import com.ruan.uberareafilter.model.RideHistoryItem
+import com.ruan.uberareafilter.model.RunState
 import com.ruan.uberareafilter.overlay.OverlayManager
 import com.ruan.uberareafilter.overlay.RideCardModel
 import com.ruan.uberareafilter.shizuku.ShizukuTapBridge
+import com.ruan.uberareafilter.setup.SetupChecks
 import com.ruan.uberareafilter.storage.ConfigRepository
 import com.ruan.uberareafilter.ui.FavoritesActivity
 import kotlinx.coroutines.CoroutineScope
@@ -57,6 +74,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 /**
@@ -74,6 +92,24 @@ class UberAccessibilityService : AccessibilityService() {
     private lateinit var configRepository: ConfigRepository
     private lateinit var evaluator: AreaEvaluator
     private lateinit var overlayManager: OverlayManager
+    private lateinit var ledger: RideLedgerTracker
+    private lateinit var chainPlanner: ChainPlanner
+
+    // "Aceitar se tocar de novo" (botao do card): corridas liberadas por voce, valem 20 min
+    private data class AcceptOverride(val sig: OfferSignature, val until: Long)
+    private val acceptOverrides = mutableListOf<AcceptOverride>()
+    private var lastBlockedTermsKey: String = ""
+    // Ultima decisao (vai junto na marca "🐞 Algo deu errado")
+    private var lastDecisionSummary: String = ""
+    private val lastPresenceAt = HashMap<String, Long>()
+    private val lastPresenceValue = HashMap<String, Boolean>()
+
+    // Contadores para o log [STATUS] (a cada 10 min)
+    private var statFrames = 0
+    private var statOcrMsTotal = 0L
+    private var statOffers = 0
+    private var statUnmatched = 0
+    private var statLastAt = 0L
     private val dualCoordinator = DualRideCoordinator()
     private val textRecognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -85,6 +121,12 @@ class UberAccessibilityService : AccessibilityService() {
     private var lastLoggedMonitored: Boolean? = null
     private var lastLoggedModeLabel: String = ""
     private var lastFingerprint: String = ""
+    /** Negocia em que so o preco atrapalha: o app nao toca, entao nao precisa reavaliar a cada leitura. */
+    private var lastNegotiateOnlyFingerprint: String = ""
+    /** Contraproposta da Negocia em andamento (lapis -> valor -> Confirmar oferta). */
+    private var counterJob: CounterOfferFlow.Job? = null
+    private var lastManualEditorLogAt: Long = 0L
+    private var lastActiveRideScreenAt = 0L
     private var lastEvaluatedAt: Long = 0L
     private var lastActionAt: Long = 0L
     private val lastActionAtByApp = mutableMapOf<String, Long>()
@@ -139,23 +181,149 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        running = true
+        offRequested = false
         configRepository = ConfigRepository(applicationContext)
+        ledger = RideLedgerTracker(EarningsStore.get(applicationContext)) { log(it) }
+        ledger.restoreOpenRides(System.currentTimeMillis())
+        OffCountdownOverlay.hide(applicationContext, "filtro religado")
+        // Religado (bloco rapido, app ou Configuracoes): volta para ON
+        if (!configRepository.load().isEnabled) configRepository.setRunStateQuick(RunState.ON)
+        FilterTileService.requestRefresh(applicationContext)
         evaluator = AreaEvaluator(applicationContext)
+        chainPlanner = ChainPlanner { address -> evaluator.pointOf(address, configRepository.load()) }
         overlayManager = OverlayManager(this)
         ShizukuTapBridge.init(applicationContext)
         ensureNotificationChannel()
         val mode = CaptureMode.from(configRepository.load())
         lastLoggedModeLabel = mode.label
-        log("Servico iniciado (Modo=${mode.label} | ADB Independente=${StandaloneAdbBridge.statusLabel(applicationContext)} | Shizuku=${ShizukuTapBridge.statusLabel(applicationContext)}).")
-        if (StandaloneAdbBridge.isPaired(applicationContext) && !StandaloneAdbBridge.isDaemonAlive(applicationContext)) {
-            serviceScope.launch(Dispatchers.IO) {
-                val res = StandaloneAdbBridge.connectAndStartDaemon(applicationContext)
+        // O status do motor interno faz PING por socket: fora da thread principal, senao o Android
+        // bloqueia e o log mostrava "nao pareado/desligado" mesmo com o motor rodando.
+        serviceScope.launch(Dispatchers.IO) {
+            val appCtx = applicationContext
+            log(
+                "Servico iniciado (Modo=${mode.label} | Motor interno: ${StandaloneAdbBridge.statusLabel(appCtx)} | " +
+                    "Shizuku: ${ShizukuTapBridge.statusLabel(appCtx)})."
+            )
+            if (StandaloneAdbBridge.isPaired(appCtx) && !StandaloneAdbBridge.isDaemonAlive(appCtx)) {
+                val res = StandaloneAdbBridge.connectAndStartDaemon(appCtx)
                 if (res.outcome == StandaloneAdbBridge.ConnectOutcome.CONNECTED) {
                     log("✔ ${res.detail}")
                 }
             }
         }
+        installCrashLogger()
+        logSessionHeader()
+        logPreviousExitReasons()
         startPeriodicScanner()
+    }
+
+    /** Cabecalho da sessao: versao, aparelho e TODAS as regras ativas (para reproduzir bugs pelo log). */
+    private fun logSessionHeader() {
+        val cfg = configRepository.load()
+        lastConfigSummary = cfg.debugSummary()
+        val version = runCatching {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            "${pi.versionName} (${pi.longVersionCode})"
+        }.getOrDefault("?")
+        log(
+            "=== SESSAO v$version • ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} • " +
+                "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT}) • " +
+                "GPS=${DriverLocationProvider.current(applicationContext) != null} ==="
+        )
+        log("[CONFIG] " + lastConfigSummary.entries.joinToString(" | ") { "${it.key}=${it.value}" })
+    }
+
+    /** A cada 10 min: bateria, leituras, tempo medio de OCR, ofertas e corridas abertas (para achar gargalos). */
+    private fun maybeLogStatus(now: Long, config: FilterConfig, monitored: Boolean) {
+        if (statLastAt == 0L) { statLastAt = now; return }
+        if (now - statLastAt < 10 * 60_000L) return
+        val bm = getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
+        val pct = bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        val charging = bm?.isCharging ?: false
+        val avgOcr = if (statFrames > 0) statOcrMsTotal / statFrames else 0
+        val rt = Runtime.getRuntime()
+        val memMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+        // Celular no suporte, no sol: o Android segura o processador e a leitura fica lenta
+        val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        val heat = when (pm?.currentThermalStatus) {
+            android.os.PowerManager.THERMAL_STATUS_NONE -> "normal"
+            android.os.PowerManager.THERMAL_STATUS_LIGHT -> "morno"
+            android.os.PowerManager.THERMAL_STATUS_MODERATE -> "QUENTE"
+            android.os.PowerManager.THERMAL_STATUS_SEVERE -> "MUITO QUENTE"
+            null -> "?"
+            else -> "CRÍTICO"
+        }
+        val screenOn = pm?.isInteractive ?: true
+        log(
+            "[STATUS] ${(now - statLastAt) / 60000} min: leituras=$statFrames (OCR médio ${avgOcr}ms) • ofertas avaliadas=$statOffers • " +
+                "telas sem oferta=$statUnmatched • bateria=$pct%${if (charging) " carregando" else ""} • calor=$heat • " +
+                "tela=${if (screenOn) "ligada" else "DESLIGADA"} • memória=${memMb}MB • " +
+                "estado=${config.runState} • app motorista na frente=$monitored • corrida aberta=${ledger.hasOpenRide()}"
+        )
+        statFrames = 0; statOcrMsTotal = 0L; statOffers = 0; statUnmatched = 0; statLastAt = now
+    }
+
+    /** Registra so o que mudou nas regras (ex.: "autoRecusa: true -> false"). */
+    private fun logConfigChanges(cfg: FilterConfig) {
+        val now = cfg.debugSummary()
+        val old = lastConfigSummary
+        lastConfigSummary = now
+        if (old.isEmpty()) return
+        val diff = now.filter { (k, v) -> old[k] != v }.map { (k, v) -> "$k: ${old[k]} -> $v" }
+        if (diff.isNotEmpty()) log("[CONFIG-MUDOU] " + diff.joinToString(" | "))
+    }
+
+    /**
+     * Nome novo na lista de bloqueados (ex.: "caxias shopping"): procura o local no mapa uma vez para
+     * bloquear tambem as entradas/nomes diferentes do mesmo lugar (rua + numero + raio de 150 m).
+     */
+    private fun maybeResolveBlockedTerms(config: FilterConfig) {
+        val key = config.blockedKeywords.joinToString("|").lowercase()
+        if (key == lastBlockedTermsKey) return
+        lastBlockedTermsKey = key
+        val pending = config.blockedKeywords.filter { t ->
+            t.trim().length >= 4 &&
+                !configRepository.isBlockedTermChecked(t) &&
+                BlockedMatcher.addressKeyword(t) == null &&
+                AddressParser.parse(t).street == null
+        }
+        if (pending.isEmpty()) return
+        serviceScope.launch(Dispatchers.IO) {
+            for (t in pending) {
+                val place = runCatching { evaluator.resolveBlockedTerm(t, config) }.getOrNull()
+                configRepository.markBlockedTermChecked(t)
+                if (place != null) {
+                    configRepository.addBlockedPlaces(listOf(place)).forEach { p ->
+                        log("[BLOQUEIO] Achei '${p.term}' no mapa: ${p.label}. Entradas com outro nome a até 150 m também ficam bloqueadas.")
+                    }
+                } else {
+                    log("[BLOQUEIO] '${t.trim()}' não é um local com endereço no mapa (bairro/rua?): continua bloqueando pelo nome")
+                }
+            }
+        }
+    }
+
+    /** Travamento: grava a pilha no log antes do Android encerrar o app. */
+    private fun installCrashLogger() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        if (previous is CrashLogHandler) return
+        Thread.setDefaultUncaughtExceptionHandler(CrashLogHandler(previous) { t, e ->
+            runCatching {
+                log("💥 TRAVAMENTO na thread '${t.name}': ${e.javaClass.simpleName}: ${e.message}\n" +
+                    e.stackTraceToString().lines().take(25).joinToString("\n"))
+            }
+        })
+    }
+
+    private class CrashLogHandler(
+        private val next: Thread.UncaughtExceptionHandler?,
+        private val onCrash: (Thread, Throwable) -> Unit
+    ) : Thread.UncaughtExceptionHandler {
+        override fun uncaughtException(t: Thread, e: Throwable) {
+            onCrash(t, e)
+            next?.uncaughtException(t, e)
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -451,13 +619,24 @@ class UberAccessibilityService : AccessibilityService() {
         }
         overlayManager.updateFloatingControl(
             visible = config.floatingButtonEnabled && isMonitoredApp,
-            isFilterActive = config.isEnabled,
+            runState = config.runState,
             onToggleFilter = {
+                // Ciclo de 3 toques: ON -> PAUSA (so le) -> OFF (desliga a leitura de tela)
                 val latest = configRepository.load()
-                val newState = !latest.isEnabled
-                configRepository.setEnabledQuick(newState)
-                syncFloatingPill(latest.copy(isEnabled = newState), true)
-                log(if (newState) "Filtro REATIVADO pelo botao flutuante" else "Filtro PAUSADO pelo botao flutuante")
+                when (latest.runState) {
+                    RunState.ON -> {
+                        configRepository.setRunStateQuick(RunState.PAUSED)
+                        overlayManager.hideBanner()
+                        syncFloatingPill(latest.copy(actionsPaused = true), true)
+                        log("Filtro em PAUSA pelo botao flutuante: so leitura, sem aceitar/recusar")
+                    }
+                    RunState.PAUSED -> turnOffScreenReading("botao flutuante")
+                    RunState.OFF -> {
+                        configRepository.setRunStateQuick(RunState.ON)
+                        syncFloatingPill(latest.copy(isEnabled = true, actionsPaused = false), true)
+                        log("Filtro LIGADO pelo botao flutuante")
+                    }
+                }
             },
             onLongPressFavorite = {
                 triggerHeartPromptManualOrRating(passengerName = null)
@@ -482,6 +661,35 @@ class UberAccessibilityService : AccessibilityService() {
         )
     }
 
+    /**
+     * OFF: desliga o proprio servico de Acessibilidade (apps de banco deixam de reclamar).
+     * Para religar: bloco "Filtro" nas Configuracoes rapidas ou o botao ligar dentro do app.
+     */
+    private fun turnOffScreenReading(origin: String) {
+        if (offRequested) return
+        offRequested = true
+        configRepository.setRunStateQuick(RunState.OFF)
+        log("Filtro DESLIGADO ($origin): leitura de tela desligada. Religue pelo bloco 'Filtro' das Configuracoes rapidas ou pelo app.")
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            runCatching {
+                android.widget.Toast.makeText(
+                    applicationContext,
+                    "Filtro desligado (leitura de tela OFF). Para religar: bloco \"Filtro\" nas Configurações rápidas ou abra o app.",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            val pillPos = runCatching { overlayManager.floatingPillPosition() }.getOrNull()
+            runCatching { overlayManager.hideAll() }
+            runCatching { ledger.flush() }
+            val cfgOff = configRepository.load()
+            if (cfgOff.floatingButtonEnabled) {
+                OffCountdownOverlay.show(applicationContext, cfgOff.offButtonMinutes, pillPos?.first, pillPos?.second)
+            }
+            FilterTileService.requestRefresh(applicationContext)
+            disableSelf()
+        }
+    }
+
     private fun startPeriodicScanner() {
         scannerLoopJob?.cancel()
         scannerLoopJob = serviceScope.launch {
@@ -489,7 +697,14 @@ class UberAccessibilityService : AccessibilityService() {
                 val nextDelayMs = 780L
                 try {
                     val config = configRepository.load()
+                    if (!config.isEnabled) {
+                        // Desligado pela tela do app: solta a Acessibilidade de verdade
+                        turnOffScreenReading("app")
+                        break
+                    }
                     val now = System.currentTimeMillis()
+                    logConfigChanges(config)
+                    maybeResolveBlockedTerms(config)
                     val mode = CaptureMode.from(config)
                     if (!dualCoordinator.isActive(config) && (dualCoordinator.primaryRide != null || dualCoordinator.queuedRide != null)) {
                         dualCoordinator.reset()
@@ -521,7 +736,16 @@ class UberAccessibilityService : AccessibilityService() {
                     if (state.isMonitored && state.resolvedPkg.isNotEmpty()) {
                         currentForegroundPkg = state.resolvedPkg
                     }
+                    // App em primeiro plano mudou (99 / Uber / outro): ajuda a entender "por que nao leu"
+                    val fgKey = if (state.isMonitored) state.resolvedPkg else "outro:${state.resolvedPkg}"
+                    if (fgKey != lastLoggedForeground) {
+                        lastLoggedForeground = fgKey
+                        val desc = if (state.isMonitored) state.resolvedPkg + " (monitorado)" else state.resolvedPkg.ifEmpty { "?" } + " (ignorado)"
+                        log("[APP] Primeiro plano: $desc")
+                    }
                     syncFloatingPill(config, state.isMonitored)
+                    ledger.tickWork(now, config.runState)
+                    maybeLogStatus(now, config, state.isMonitored)
 
                     if (config.isEnabled && (state.isMonitored || hasQuietUberProbe)) {
                         scanActiveScreen(
@@ -530,8 +754,16 @@ class UberAccessibilityService : AccessibilityService() {
                             quietProbeOnly = !state.isMonitored
                         )
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Erro no scanner", e)
+                    val t = System.currentTimeMillis()
+                    if (t - lastScannerErrorLogAt > 10_000L) {
+                        lastScannerErrorLogAt = t
+                        val where = e.stackTrace.take(4).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" }
+                        log("⚠ ERRO no leitor: ${e.javaClass.simpleName}: ${e.message} @ $where")
+                    }
                 }
                 delay(nextDelayMs)
             }
@@ -552,14 +784,32 @@ class UberAccessibilityService : AccessibilityService() {
         quietProbeOnly: Boolean = false
     ) {
         // Usa exclusivamente takeScreenshot + ML Kit OCR + Roteador Modular (99 / Uber) + Inspecao Visual de Pixels
+        val frameStartedAt = System.currentTimeMillis()
         val bitmap = captureScreenBitmap() ?: return
         val visionText = recognizeText(bitmap)
+        statFrames++
+        statOcrMsTotal += System.currentTimeMillis() - frameStartedAt
         val width = bitmap.width
         val height = bitmap.height
 
         if (visionText == null) {
             bitmap.recycle()
             return
+        }
+
+        // "Voce esta online/offline": o painel de Ganhos so conta horas com voce online
+        if (!quietProbeOnly && visibleState.isMonitored) {
+            val lines = visionText.textBlocks.flatMap { it.lines }.map { it.text }
+            DriverPresence.detect(lines)?.let { online ->
+                val app = visibleState.preferredAppSource
+                    ?: if (visibleState.resolvedPkg.contains("ubercab")) "UBER" else "99"
+                val nowP = System.currentTimeMillis()
+                if (lastPresenceValue[app] != online || nowP - (lastPresenceAt[app] ?: 0L) > 30_000L) {
+                    lastPresenceValue[app] = online
+                    lastPresenceAt[app] = nowP
+                    ledger.onPresence(app, online, nowP)
+                }
+            }
         }
 
         val ocrParsed = AppCaptureRouter.parseActiveScreen(
@@ -585,6 +835,8 @@ class UberAccessibilityService : AccessibilityService() {
         }
         bitmap.recycle()
         if (ocrParsed == null) {
+            statUnmatched++
+            if (!quietProbeOnly) advanceCounterOfferJob(System.currentTimeMillis())
             if (activeBannerApp.isNotEmpty() && System.currentTimeMillis() - lastOfferSeenAt > 2500L) {
                 resetActiveBannerOffer()
             }
@@ -635,9 +887,10 @@ class UberAccessibilityService : AccessibilityService() {
             val pickupKmStr = ocrParsed.pickupDistanceKm?.let { String.format(Locale.US, "%.1fkm", it) } ?: "?"
             val hrStr = ocrParsed.hourlyRate?.let { String.format(Locale.US, "R$%.0f/h", it) } ?: "?"
             val stopsStr = if (ocrParsed.hasMultipleStops) " | Paradas=${ocrParsed.stopsCount}" else ""
+            val negStr = if (ocrParsed.isNegotiable) " | NEGOCIA" else ""
             val bgTag = if (quietProbeOnly) " [2o-PLANO]" else ""
             log(
-                "OCR [${ocrParsed.appSource}]$bgTag (OFERTA): R$/km=${ocrParsed.pricePerKm?.let { String.format(Locale.US, "%.2f", it) } ?: "N/A"} | " +
+                "OCR [${ocrParsed.appSource}]$bgTag (OFERTA$negStr): R$/km=${ocrParsed.pricePerKm?.let { String.format(Locale.US, "%.2f", it) } ?: "N/A"} | " +
                     "$hrStr | EmbKm=$pickupKmStr | Tot=$totalKmStr$stopsStr | Emb=${ocrParsed.pickupAddress ?: "N/A"} | Dest=${ocrParsed.dropoffAddress ?: "N/A"}"
             )
         }
@@ -658,6 +911,7 @@ class UberAccessibilityService : AccessibilityService() {
                 log("[RAIO-X OCR-OFERTA] ${buildOcrXrayLines(visionText, height)}")
             } else if (!resolvedParsed.isRideOffer) {
                 val cycleTag = when {
+                    resolvedParsed.isCounterOfferEditor -> "CONTRAPROPOSTA"
                     resolvedParsed.isCancelledScreen -> "CANCELADA"
                     resolvedParsed.isRatingScreen -> "AVALIACAO"
                     resolvedParsed.isInActiveRide -> "EM_VIAGEM"
@@ -743,7 +997,7 @@ class UberAccessibilityService : AccessibilityService() {
             } else {
                 "@Y?:\"$raw\""
             }
-        }.take(28).joinToString(" | ")
+        }.take(45).joinToString(" | ") // 45: nomes do mapa nao empurram o card para fora do log
     }
 
     /**
@@ -900,6 +1154,8 @@ class UberAccessibilityService : AccessibilityService() {
         pendingShotBytes: ByteArray? = null
     ) {
         val now = System.currentTimeMillis()
+        if (parsed.isInActiveRide) lastActiveRideScreenAt = now
+        runCatching { ledger.onScreen(parsed, now) }.onFailure { log("[GANHOS] ⚠ erro no ciclo: ${it.message}") }
 
         dualCoordinator.onScreenObserved(parsed, config, now)?.let { evt ->
             log(evt.message)
@@ -909,6 +1165,13 @@ class UberAccessibilityService : AccessibilityService() {
             }
             syncFloatingPill(config, true)
         }
+
+        // Tela do lapis da Negocia ("Sua oferta"): o app so mexe nela quando foi ele que abriu
+        if (parsed.isCounterOfferEditor) {
+            handleCounterOfferEditor(parsed, config, now)
+            return
+        }
+        advanceCounterOfferJob(now)
 
         // A) Janela "Varias solicitacoes seguidas recusadas" -> clicar IMEDIATAMENTE e sem atraso em "Continuar aceitando solicitacoes"
         if (parsed.isContinuePrompt && !parsed.isRideOffer && config.autoClickContinueEnabled) {
@@ -951,8 +1214,66 @@ class UberAccessibilityService : AccessibilityService() {
                 serviceScope.launch {
                     saveCandidateToFavorites(candidate, passengerName)
                 }
-            }
+            },
+            onMarkProblem = { markProblem(if (passengerName == null) "botão flutuante (segurar)" else "tela de avaliação") }
         )
+    }
+
+    /**
+     * "🐞 Algo deu errado agora?": grava no log uma MARCA com tudo que o app sabia naquele instante,
+     * para achar depois o momento exato do problema e corrigir o app.
+     */
+    private fun markProblem(source: String) {
+        val cfg = runCatching { configRepository.load() }.getOrNull()
+        val lock = dualCoordinator.primaryRide?.let { "${it.appSource} → ${it.dropoffAddress.take(40)}" } ?: "livre"
+        val queued = dualCoordinator.queuedRide?.let { " (+fila ${it.appSource} → ${it.dropoffAddress.take(30)})" }.orEmpty()
+        log(
+            "[MARCA] 🐞 Você marcou um problema ($source) • estado=${cfg?.runState ?: "?"} • app na frente=$currentForegroundPkg • " +
+                "trava=$lock$queued • corrida aberta no painel=${ledger.hasOpenRide()} • última oferta: ${lastDecisionSummary.ifBlank { "nenhuma" }}"
+        )
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            runCatching {
+                android.widget.Toast.makeText(applicationContext, "Problema marcado. Depois conte o que aconteceu.", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** Por que o app fechou da ultima vez (Android matou por memoria, travou, atualizacao...). */
+    private fun logPreviousExitReasons() {
+        runCatching {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val prefs = getSharedPreferences("diagnostico", Context.MODE_PRIVATE)
+            val lastSeen = prefs.getLong("ultima_saida_registrada", 0L)
+            val exits = am.getHistoricalProcessExitReasons(packageName, 0, 10)
+                .filter { it.processName == packageName && it.timestamp > lastSeen }
+                .sortedBy { it.timestamp }
+            val fmt = SimpleDateFormat("dd/MM HH:mm:ss", Locale.getDefault())
+            exits.forEach { e ->
+                val desc = e.description?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+                log("[SAIDA] O app fechou em ${fmt.format(Date(e.timestamp))}: ${exitReasonLabel(e.reason)}$desc • memória ${e.pss / 1024}MB")
+            }
+            exits.maxOfOrNull { it.timestamp }?.let { prefs.edit().putLong("ultima_saida_registrada", it).apply() }
+        }.onFailure { log("[SAIDA] não consegui ler o motivo do último fechamento: ${it.javaClass.simpleName}") }
+    }
+
+    private fun exitReasonLabel(reason: Int): String = when (reason) {
+        android.app.ApplicationExitInfo.REASON_EXIT_SELF -> "o próprio app encerrou (botão OFF / fim da contagem)"
+        android.app.ApplicationExitInfo.REASON_SIGNALED -> "encerrado pelo sistema (sinal)"
+        android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> "Android fechou por FALTA DE MEMÓRIA"
+        android.app.ApplicationExitInfo.REASON_CRASH -> "TRAVOU (erro no app)"
+        android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> "TRAVOU (erro nativo)"
+        android.app.ApplicationExitInfo.REASON_ANR -> "TRAVOU (app sem responder)"
+        android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "falhou ao iniciar"
+        android.app.ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "uma permissão foi mudada"
+        android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "Android fechou por uso excessivo de bateria/processador"
+        android.app.ApplicationExitInfo.REASON_USER_REQUESTED -> "fechado por pedido (forçar parada, limpar recentes ou atualização)"
+        android.app.ApplicationExitInfo.REASON_USER_STOPPED -> "você parou o app"
+        android.app.ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "um serviço do qual o app depende parou"
+        android.app.ApplicationExitInfo.REASON_OTHER -> "outro motivo do sistema"
+        16 -> "atualização do app"
+        15 -> "mudança no pacote do app"
+        14 -> "congelado pelo sistema"
+        else -> "motivo $reason"
     }
 
     private suspend fun saveCandidateToFavorites(candidate: RideHistoryItem?, passengerName: String?) {
@@ -1115,20 +1436,37 @@ class UberAccessibilityService : AccessibilityService() {
 
     private suspend fun handleOffer(
         parsed: ParsedRideOffer,
-        config: FilterConfig,
+        rawConfig: FilterConfig,
         source: String,
         pendingShotBytes: ByteArray? = null
     ) {
+        // PAUSA: avalia e mostra o card normalmente, mas nenhuma acao de aceitar/recusar
+        val config = if (rawConfig.actionsPaused) {
+            rawConfig.copy(autoRejectEnabled = false, autoAcceptInsideArea = false, autoAcceptInterZone = false)
+        } else {
+            rawConfig
+        }
         val now = System.currentTimeMillis()
         val isSameOffer = parsed.fingerprint == lastFingerprint
         val appActionAt = lastActionAtByApp[parsed.appSource] ?: 0L
 
-        val result = evaluator.evaluate(parsed, config)
+        // GPS do motorista so vale para ofertas "em espera": em corrida, a distancia ate o embarque
+        // pode ser contada a partir do destino atual (e nao de onde o carro esta agora).
+        val driverFix = if (dualCoordinator.primaryRide == null && now - lastActiveRideScreenAt > 90_000L) {
+            DriverLocationProvider.current(applicationContext)
+        } else {
+            null
+        }
+        val evalStartedAt = System.currentTimeMillis()
+        val result = evaluator.evaluate(parsed, config, driverFix)
+        val evalMs = System.currentTimeMillis() - evalStartedAt
         val conflict = dualCoordinator.evaluateOfferConflict(parsed, config)
         val wantsAutoReject = result.decision == Decision.OUTSIDE_AREA ||
+            (result.decision == Decision.UNCERTAIN && config.rejectUncertainLocation) ||
             conflict.action == DualRideCoordinator.ConflictAction.AUTO_REJECT_OTHER_APP
 
         if (isSameOffer) {
+            if (parsed.fingerprint == lastNegotiateOnlyFingerprint && now - lastEvaluatedAt < 3500L) return
             if (!wantsAutoReject || !config.autoRejectEnabled) {
                 if (now - lastEvaluatedAt < 3500L) return
             } else {
@@ -1140,11 +1478,117 @@ class UberAccessibilityService : AccessibilityService() {
         lastFingerprint = parsed.fingerprint
         lastEvaluatedAt = now
         val appTag = "[${parsed.appSource}]"
-        log("[$source] Decisao: ${result.decision} -> ${result.reason} | ${result.checklistText}")
+
+        // Nome bloqueado visto com rua+numero ("Caxias Shopping, Rodovia Washington Luiz, 2895"):
+        // grava o endereco para pegar o mesmo lugar com outro nome ("Entrada norte, Rod. Washington Luiz, 2895")
+        if (result.learnedBlockedPlaces.isNotEmpty()) {
+            configRepository.addBlockedPlaces(result.learnedBlockedPlaces).forEach { p ->
+                log("[BLOQUEIO] Aprendi o endereço de '${p.term}': ${p.label}. Outros nomes do mesmo lugar também ficam bloqueados.")
+            }
+        }
+
+        // ---- Encaixe 99 <-> Uber: durante corrida no outro app, a busca e medida do DESTINO dela ----
+        // Regra do motorista (18/11): so com o passageiro da corrida atual A BORDO (corrida iniciada) e
+        // [o que falta dela] + [ida ate o proximo passageiro] <= limite (padrao 3 min). Fora disso, vale a trava.
+        var chainPlan: ChainPlanner.Plan? = null
+        var chainNote: String? = null
+        var decided = result
+        val activeForChain = conflict.activeRide
+        if (config.chainAcrossAppsEnabled && activeForChain != null &&
+            (conflict.action == DualRideCoordinator.ConflictAction.BLOCK_AUTO_ACCEPT_ONLY ||
+                conflict.action == DualRideCoordinator.ConflictAction.AUTO_REJECT_OTHER_APP)
+        ) {
+            val activeLabel = if (activeForChain.appSource.equals("UBER", true)) "Uber" else activeForChain.appSource
+            val stage = dualCoordinator.activeStage()
+            if (stage != RideProgress.Stage.TRIP) {
+                chainNote = "⛓ Encaixe só depois que o passageiro da $activeLabel embarcar (corrida iniciada)"
+                log(
+                    "[ENCAIXE] $appTag não encaixa: a corrida da ${activeForChain.appSource} ainda não começou (" +
+                        (if (stage == RideProgress.Stage.PICKUP) "indo buscar / esperando o passageiro" else "etapa não lida") +
+                        ") -> vale a trava"
+                )
+            } else {
+                val remaining = dualCoordinator.remainingMinutes(now)
+                chainPlan = runCatching {
+                    chainPlanner.plan(activeForChain.appSource, activeForChain.dropoffAddress, parsed, remaining, config.chainMaxWaitMin)
+                }.getOrNull()
+                if (chainPlan != null) {
+                    val chained = evaluator.evaluate(chainPlan.adjusted, config, null)
+                    decided = chained.copy(
+                        checklistText = chainPlan.summary() + "\n" + chained.checklistText.ifBlank { chained.reason }
+                    )
+                    log(
+                        "[ENCAIXE] $appTag durante corrida ${activeForChain.appSource} (passageiro a bordo): busca real ${chainPlan.chainKm} km " +
+                            "(o card dizia ${parsed.pickupDistanceKm ?: "?"} km) • ${chainPlan.timeText()} • " +
+                            "tempo ${if (chainPlan.waitOk) "OK" else "ESTOURA"} • regras: ${chained.decision} -> ${chained.reason}"
+                    )
+                } else {
+                    chainNote = "⛓ Não consegui medir a busca a partir do destino da $activeLabel"
+                    log("[ENCAIXE] $appTag não deu para medir a busca a partir do destino da ${activeForChain.appSource} (endereço não achado no mapa): vale a trava")
+                }
+            }
+        }
+        val chainAcceptable = chainPlan != null &&
+            (decided.decision == Decision.INSIDE_AREA || decided.decision == Decision.INTER_ZONE)
+        val conflictAction = when {
+            chainPlan == null -> conflict.action
+            // passou nas regras e cabe no tempo: aceita e vira a corrida #2 (fila)
+            chainAcceptable && chainPlan.waitOk -> DualRideCoordinator.ConflictAction.ALLOW_AS_SEQUENTIAL
+            // regras recusam (busca longe, R$/h baixo, fora da area...): recusa normal
+            decided.decision == Decision.OUTSIDE_AREA -> DualRideCoordinator.ConflictAction.ALLOW
+            // passou nas regras mas o tempo estoura (ou nao li quanto falta): vale a trava
+            else -> conflict.action
+        }
+
+        // ---- Corrida "Negocia" da 99 ----
+        // Passa nas regras pelo valor do passageiro: aceita como corrida normal.
+        // So o preco atrapalha (com o minimo das suas regras ela passaria em tudo): o app pede o valor
+        // minimo (lapis -> escreve o valor -> Confirmar oferta). Area, nota, bloqueio... = recusa normal.
+        val negotiation = if (parsed.isNegotiable && chainPlan == null) {
+            runCatching { NegotiationAdvisor.advise(parsed, config) }.getOrNull()
+        } else {
+            null
+        }
+        var negotiatePriceOnly = false
+        var negotiateTooFar = false
+        var negotiateAtMinDecision: Decision? = null
+        if (negotiation != null && !negotiation.passesAtPassengerPrice &&
+            (decided.decision == Decision.OUTSIDE_AREA || decided.decision == Decision.UNCERTAIN)
+        ) {
+            val atMin = runCatching {
+                evaluator.evaluate(NegotiationAdvisor.withPrice(parsed, negotiation.minPrice), config, driverFix)
+            }.getOrNull()
+            val priceOnly = atMin != null &&
+                (atMin.decision == Decision.INSIDE_AREA || atMin.decision == Decision.INTER_ZONE)
+            negotiateAtMinDecision = atMin?.decision
+            negotiatePriceOnly = priceOnly && negotiation.withinReach
+            negotiateTooFar = priceOnly && !negotiation.withinReach
+        }
+
+        log("[$source] Decisao: ${decided.decision} (${evalMs}ms, estado=${rawConfig.runState}, gps=${driverFix != null}) -> ${decided.reason} | ${decided.checklistText}")
+        if (negotiation != null) {
+            val what = when {
+                negotiatePriceOnly -> "só o preço atrapalha: ${NegotiationAdvisor.logText(negotiation)} • peço o mínimo, não recuso"
+                negotiateTooFar -> "só o preço atrapalha, mas ${NegotiationAdvisor.logText(negotiation)}: longe demais (+${negotiation.raisePercent}%), recusa normal"
+                negotiation.passesAtPassengerPrice && (decided.decision == Decision.INSIDE_AREA || decided.decision == Decision.INTER_ZONE) ->
+                    "${NegotiationAdvisor.logText(negotiation)} • segue como corrida normal"
+                else -> "o problema não é o preço (${decided.reason.take(80)}) • segue a regra normal"
+            }
+            log("[NEGOCIA] [${parsed.appSource}] R$ ${String.format(Locale("pt", "BR"), "%.2f", negotiation.passengerPrice)} " +
+                "(botões ${parsed.counterOfferPrices.joinToString("/") { String.format(Locale("pt", "BR"), "%.2f", it) }.ifEmpty { "não lidos" }}): $what")
+        }
+        lastDecisionSummary = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(now)) +
+            " ${parsed.appSource} ${decided.decision}: ${parsed.pickupAddress.orEmpty().take(40)} → " +
+            "${parsed.dropoffAddress.orEmpty().take(40)} (${decided.reason.take(100)})"
 
         val br = Locale("pt", "BR")
         val priceFmt = parsed.ridePrice?.let { String.format(br, "R$ %.2f", it) } ?: ""
         dualCoordinator.rememberCandidateOffer(parsed, priceFmt, now)
+        val ledgerFuel = parsed.totalDistanceKm?.let { km ->
+            FuelCalculator.estimate(km, parsed.ridePrice, parsed.hourlyRate, config, requireFuelDisplayEnabled = false)?.cost
+        }
+        ledger.onOfferEvaluated(parsed, if (negotiatePriceOnly) "NEGOCIA" else decided.decision.name, ledgerFuel, now)
+        statOffers++
         val kmFmt = parsed.pricePerKm?.let { String.format(br, "R$ %.2f/km", it) } ?: ""
         val totKmFmt = parsed.totalDistanceKm?.let { String.format(br, "%.1f km", it) } ?: ""
         val ratingFmt = parsed.passengerRating?.let { String.format(br, "★ %.2f", it) }
@@ -1168,9 +1612,10 @@ class UberAccessibilityService : AccessibilityService() {
         }
         val secondaryList = listOf(kmFmt, totKmFmt, ratingFmt, stopsFmt).filter { it.isNotEmpty() }
 
+        var savedShotPath = ""
         if (!isSameOffer && (!parsed.pickupAddress.isNullOrBlank() || !parsed.dropoffAddress.isNullOrBlank() || parsed.ridePrice != null)) {
             val timeShort = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-            val savedShotPath = if (pendingShotBytes != null && config.saveRideScreenshotsEnabled) {
+            savedShotPath = if (pendingShotBytes != null && config.saveRideScreenshotsEnabled) {
                 val targetPath = ConfigRepository.buildRideScreenshotPath(this, now)
                 val written = withContext(Dispatchers.IO) {
                     ConfigRepository.saveRideScreenshotBytesToPath(targetPath, pendingShotBytes)
@@ -1193,19 +1638,43 @@ class UberAccessibilityService : AccessibilityService() {
                 pricePerKmText = kmFmt,
                 hourlyRateText = hrFmt,
                 ratingText = ratingFmt,
-                isInsideArea = result.decision == Decision.INSIDE_AREA || result.decision == Decision.INTER_ZONE,
-                reason = result.reason,
+                isInsideArea = decided.decision == Decision.INSIDE_AREA || decided.decision == Decision.INTER_ZONE,
+                reason = decided.reason,
                 screenshotPath = savedShotPath
             )
             configRepository.addRideHistory(historyItem)
         }
 
-        val checklist = result.checklistText.ifBlank { result.reason }
+        val checklist = decided.checklistText.ifBlank { decided.reason }
         val bannerHideMs = config.bannerAutoHideSeconds.coerceIn(1, 30) * 1000L
         val sameBannerOffer = isSameActiveBannerOffer(parsed)
 
-        fun maybeShowBanner(model: RideCardModel) {
+        // ---- "Aceitar se tocar de novo": corrida que voce liberou no botao do card ----
+        val signature = OfferSignature.of(parsed.appSource, parsed.pickupAddress, parsed.dropoffAddress)
+        acceptOverrides.removeAll { it.until < now }
+        val override = signature?.let { s -> acceptOverrides.firstOrNull { it.sig.matches(s) } }
+
+        val blockedByConflict = conflictAction == DualRideCoordinator.ConflictAction.BLOCK_AUTO_ACCEPT_ONLY
+        // Negocia que passa nas regras pelo valor do passageiro e aceita como corrida normal
+        val willAutoAccept = conflictAction != DualRideCoordinator.ConflictAction.AUTO_REJECT_OTHER_APP && when (decided.decision) {
+            Decision.INSIDE_AREA -> config.autoAcceptInsideArea && !blockedByConflict
+            Decision.INTER_ZONE -> config.autoAcceptInterZone && !blockedByConflict
+            else -> false
+        }
+        // Botao discreto grudado no card: so quando o app NAO vai aceitar sozinho (as vezes o app erra).
+        // Na Negocia em que so o preco atrapalha, nao: o botao aceitaria pelo valor baixo do passageiro.
+        val quickLabel = if (override == null && !willAutoAccept && signature != null &&
+            decided.decision != Decision.UNKNOWN_KEEP && !negotiatePriceOnly
+        ) QUICK_ACCEPT_LABEL else null
+        val quickCallback: (() -> Unit)? = if (quickLabel != null && signature != null) {
+            { onQuickAcceptTapped(parsed, signature) }
+        } else {
+            null
+        }
+
+        fun maybeShowBanner(cardModel: RideCardModel) {
             if (!config.showRideInfoBannerEnabled) return
+            val model = if (rawConfig.actionsPaused) cardModel.copy(statusLabel = "PAUSADO · SÓ LEITURA") else cardModel
             if (sameBannerOffer) {
                 if (overlayManager.isBannerVisible() && (now - activeBannerShownAt) < bannerHideMs) {
                     overlayManager.updateRideCardContent(model)
@@ -1217,25 +1686,76 @@ class UberAccessibilityService : AccessibilityService() {
             activeBannerPickup = parsed.pickupAddress?.trim()?.lowercase().orEmpty()
             activeBannerDropoff = parsed.dropoffAddress?.trim()?.lowercase().orEmpty()
             activeBannerShownAt = now
-            overlayManager.showRideCard(model)
+            overlayManager.showRideCard(model.copy(quickActionLabel = quickLabel), quickCallback)
+        }
+
+        // Foto da corrida JUNTO com o card do filtro (para comparar o que o app decidiu com a oferta real)
+        fun scheduleShotWithCard(statusText: String) {
+            val path = savedShotPath
+            if (path.isEmpty() || !config.showRideInfoBannerEnabled) return
+            val caption = "Filtro: $statusText · " + SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(now))
+            overlayManager.captureRideCardBitmap { card ->
+                if (card != null) {
+                    serviceScope.launch(Dispatchers.IO) { composeShotWithCard(path, card, caption) }
+                }
+            }
+        }
+
+        if (override != null) {
+            acceptOverrides.remove(override)
+            maybeShowBanner(
+                RideCardModel(
+                    decision = Decision.INSIDE_AREA,
+                    appSource = parsed.appSource,
+                    title = "Você liberou esta corrida",
+                    statusLabel = if (rawConfig.actionsPaused) "VOCÊ DECIDE" else "ACEITANDO",
+                    priceText = priceFmt.ifEmpty { null },
+                    hourlyText = hrFmt.ifEmpty { null },
+                    secondaryMetrics = secondaryList,
+                    fuelText = fuelEstimate?.costText,
+                    profitText = profitLabel,
+                    profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                    checklist = "✔ Tocou de novo: você pediu para aceitar\n$checklist",
+                    autoHideMs = bannerHideMs
+                )
+            )
+            scheduleShotWithCard("LIBERADA POR VOCÊ")
+            if (rawConfig.actionsPaused) {
+                log("[LIBERADA] $appTag A corrida que você liberou tocou de novo, mas o filtro está em PAUSA: só mostrei o card")
+                return
+            }
+            lastActionAt = now
+            lastActionAtByApp[parsed.appSource] = now
+            if (config.humanDelayEnabled) delay(Random.nextLong(280L, 520L))
+            if (!isOfferAppStillSafeToTap(config, parsed.appSource)) {
+                log("[LIBERADA] $appTag aceite cancelado: janela mudou durante o atraso")
+                return
+            }
+            val accepted = performAcceptForOffer(parsed)
+            log("[LIBERADA] $appTag A corrida que você liberou tocou de novo: aceite disparado (sucesso=$accepted) • regras diziam: ${decided.reason}")
+            if (accepted) registerAccepted(parsed, config, priceFmt, now)
+            return
         }
 
         // Opcao 2 do Controle de Conflito: recusa automaticamente TODAS as corridas do outro app durante viagem ativa
-        if (conflict.action == DualRideCoordinator.ConflictAction.AUTO_REJECT_OTHER_APP) {
+        if (conflictAction == DualRideCoordinator.ConflictAction.AUTO_REJECT_OTHER_APP) {
             val active = conflict.activeRide
             val activeDest = active?.dropoffAddress?.ifBlank { active.pickupAddress }.orEmpty()
             val conflictChecklist = buildString {
                 append("🔒 Em viagem [${active?.appSource ?: "?"}]")
                 if (activeDest.isNotBlank()) append(" → Dest: $activeDest")
                 append("\n")
+                chainNote?.let { append(it).append("\n") }
+                chainPlan?.takeIf { !it.waitOk }?.let { append("⚠ Tempo: ").append(it.timeText()).append("\n") }
                 append(checklist)
             }
+            val status = if (config.autoRejectEnabled) "RECUSANDO CONFLITO" else "BLOQUEADO"
             maybeShowBanner(
                 RideCardModel(
                     decision = Decision.OUTSIDE_AREA,
                     appSource = parsed.appSource,
                     title = "Conflito (${active?.appSource ?: "em corrida"})",
-                    statusLabel = if (config.autoRejectEnabled) "RECUSANDO CONFLITO" else "BLOQUEADO",
+                    statusLabel = status,
                     priceText = priceFmt.ifEmpty { null },
                     hourlyText = hrFmt.ifEmpty { null },
                     secondaryMetrics = secondaryList,
@@ -1246,32 +1766,140 @@ class UberAccessibilityService : AccessibilityService() {
                     autoHideMs = bannerHideMs
                 )
             )
+            scheduleShotWithCard(status)
             if (config.autoRejectEnabled) {
+                ledger.onAutoRejected(parsed, "Conflito em corrida", now)
                 executeSurgicalReject(parsed, config, appTag, now)
             }
             return
         }
 
-        val blockedByConflict = conflict.action == DualRideCoordinator.ConflictAction.BLOCK_AUTO_ACCEPT_ONLY
+        // Pintura por zona: card com a cor da zona de destino (so corridas aceitaveis; vermelho/laranja nunca mudam)
+        val zoneColorHex = if (config.zoneCardColorsEnabled && decided.dropoffZoneId != null) {
+            config.mapZones.firstOrNull { it.id == decided.dropoffZoneId }?.cardColorHex?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+        val chainApp = chainPlan?.activeApp?.let { if (it.equals("UBER", true)) "Uber" else it }
+        val chainWaitNote = chainPlan?.let { p ->
+            if (p.waitOk) null
+            else if (p.remainingMin == null) "⚠ Não li quanto falta da $chainApp: não encaixa"
+            else "⚠ ${p.timeText()}: não encaixa"
+        } ?: chainNote
 
-        when (result.decision) {
-            Decision.INSIDE_AREA -> {
+        // Negocia em que so o preco atrapalha: o app pede o valor minimo das suas regras.
+        // So envia sozinho com o aceite automatico ligado (entre zonas: o aceite entre zonas) e sem trava 99/Uber;
+        // senao mostra quanto pedir e a negociacao fica com voce.
+        if (negotiatePriceOnly && negotiation != null) {
+            lastNegotiateOnlyFingerprint = parsed.fingerprint
+            val autoAllowed = when (negotiateAtMinDecision) {
+                Decision.INTER_ZONE -> config.autoAcceptInterZone
+                Decision.INSIDE_AREA -> config.autoAcceptInsideArea
+                else -> false
+            }
+            val pencil = parsed.counterOfferPencilTap
+            val runningJob = counterJob?.takeIf { it.fingerprint == parsed.fingerprint && now - it.startedAt < 60_000L }
+            val sendNow = autoAllowed && !blockedByConflict && pencil != null && runningJob == null
+            val sending = sendNow || runningJob?.active == true
+            val alreadySent = runningJob?.stage == CounterOfferFlow.Stage.SENT
+            val askText = String.format(br, "%.2f", runningJob?.confirmedValue ?: negotiation.typedValue)
+            maybeShowBanner(
+                RideCardModel(
+                    decision = Decision.UNCERTAIN,
+                    appSource = parsed.appSource,
+                    title = when {
+                        alreadySent -> "Negocie: pedi $askText"
+                        sending -> "Negocie: pedindo $askText"
+                        else -> NegotiationAdvisor.title(negotiation)
+                    },
+                    statusLabel = if (sending || alreadySent) "NEGOCIANDO" else "VOCÊ NEGOCIA",
+                    priceText = priceFmt.ifEmpty { null },
+                    hourlyText = hrFmt.ifEmpty { null },
+                    secondaryMetrics = secondaryList,
+                    fuelText = fuelEstimate?.costText,
+                    profitText = profitLabel,
+                    profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                    checklist = (
+                        if (sending || alreadySent) {
+                            NegotiationAdvisor.sendingLines(negotiation, runningJob?.confirmedValue ?: negotiation.typedValue, alreadySent)
+                        } else {
+                            NegotiationAdvisor.cardLines(negotiation)
+                        } + checklist
+                        ).joinToString("\n"),
+                    autoHideMs = maxOf(bannerHideMs, NEGOTIATE_CARD_MIN_MS)
+                )
+            )
+            scheduleShotWithCard(if (sending || alreadySent) "NEGOCIANDO" else "VOCÊ NEGOCIA")
+            if (!sendNow) {
+                if (runningJob == null && !alreadySent) {
+                    val why = when {
+                        !autoAllowed -> "aceite automático desligado"
+                        blockedByConflict -> "trava 99/Uber ligada (corrida em andamento)"
+                        else -> "não achei o lápis na tela"
+                    }
+                    log("[NEGOCIA] $appTag não enviei a contraproposta ($why): mostrei quanto pedir")
+                }
+                return
+            }
+            lastActionAt = now
+            lastActionAtByApp[parsed.appSource] = now
+            if (config.humanDelayEnabled) delay(Random.nextLong(280L, 520L))
+            if (!isOfferAppStillSafeToTap(config, parsed.appSource)) {
+                log("[NEGOCIA] $appTag contraproposta cancelada: a janela mudou antes do toque no lápis")
+                return
+            }
+            val tapped = dispatchTap(pencil!!.first, pencil.second)
+            counterJob = CounterOfferFlow.Job(
+                app = parsed.appSource,
+                fingerprint = parsed.fingerprint,
+                minPrice = negotiation.minPrice,
+                target = negotiation.typedValue,
+                startedAt = System.currentTimeMillis()
+            )
+            ledger.onCounterOffer(parsed.appSource, parsed.fingerprint, negotiation.typedValue, now)
+            log(
+                "[NEGOCIA] $appTag toquei no lápis (${pencil.first.toInt()}x${pencil.second.toInt()}, sucesso=$tapped) para pedir " +
+                    "R$ $askText (mínimo das suas regras R$ ${String.format(br, "%.2f", negotiation.minPrice)})"
+            )
+            return
+        }
+        // Linhas da Negocia no card: "valor ja passa" (card verde) ou "precisaria +X%" (card vermelho)
+        val negotiationLines = when {
+            negotiation == null -> emptyList()
+            negotiateTooFar -> NegotiationAdvisor.cardLines(negotiation)
+            negotiation.passesAtPassengerPrice &&
+                (decided.decision == Decision.INSIDE_AREA || decided.decision == Decision.INTER_ZONE) ->
+                NegotiationAdvisor.cardLines(negotiation)
+            else -> emptyList()
+        }
+
+        when (decided.decision) {
+            Decision.INSIDE_AREA, Decision.INTER_ZONE -> {
+                val isInter = decided.decision == Decision.INTER_ZONE
                 val active = conflict.activeRide
                 val activeDest = active?.dropoffAddress?.ifBlank { active.pickupAddress }.orEmpty()
-                val titleText = if (blockedByConflict) "🔒 Em viagem (${active?.appSource ?: "?"})" else "Dentro da área"
+                val autoOn = if (isInter) config.autoAcceptInterZone else config.autoAcceptInsideArea
+                val titleText = when {
+                    chainPlan != null -> if (blockedByConflict) "Encaixe? (${chainApp} em andamento)" else "Encaixe após a $chainApp"
+                    blockedByConflict -> "🔒 Em viagem (${active?.appSource ?: "?"})"
+                    isInter -> "Corrida entre zonas?"
+                    else -> "Dentro da área"
+                }
                 val statusText = when {
-                    blockedByConflict -> "DUPLO ACEITE BLOQUEADO"
-                    config.autoAcceptInsideArea -> "ACEITANDO"
+                    blockedByConflict -> if (chainPlan != null) "VOCÊ DECIDE" else "DUPLO ACEITE BLOQUEADO"
+                    autoOn -> "ACEITANDO"
                     else -> "VOCÊ DECIDE"
                 }
-                val finalChecklist = if (blockedByConflict) {
-                    "🔒 ${active?.appSource} ativo${if (activeDest.isNotBlank()) " (Dest: $activeDest)" else ""}\n$checklist"
-                } else {
-                    checklist
-                }
+                val finalChecklist = when {
+                    chainPlan != null && chainWaitNote != null -> "$chainWaitNote\n$checklist"
+                    chainPlan != null -> checklist
+                    blockedByConflict -> "🔒 ${active?.appSource} ativo${if (activeDest.isNotBlank()) " (Dest: $activeDest)" else ""}\n" +
+                        (chainWaitNote?.let { "$it\n" } ?: "") + checklist
+                    else -> checklist
+                }.let { base -> (negotiationLines + base).joinToString("\n") }
                 maybeShowBanner(
                     RideCardModel(
-                        decision = Decision.INSIDE_AREA,
+                        decision = decided.decision,
                         appSource = parsed.appSource,
                         title = titleText,
                         statusLabel = statusText,
@@ -1282,84 +1910,28 @@ class UberAccessibilityService : AccessibilityService() {
                         profitText = profitLabel,
                         profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
                         checklist = finalChecklist,
+                        zoneColorHex = zoneColorHex,
                         autoHideMs = bannerHideMs
                     )
                 )
+                scheduleShotWithCard(statusText)
 
                 val lastAcceptAt = lastActionAtByApp[parsed.appSource] ?: 0L
+                val label = if (isInter) "Auto-aceitar entre zonas" else "Auto-aceitar"
                 if (blockedByConflict) {
-                    log("🔒 Auto-aceite bloqueado $appTag: em corrida no app ${active?.appSource} (Dest: $activeDest)")
-                } else if (config.autoAcceptInsideArea && now - lastAcceptAt > 1200L) {
+                    log("🔒 $label bloqueado $appTag: em corrida no app ${active?.appSource} (Dest: $activeDest)${chainWaitNote?.let { " • $it" } ?: ""}")
+                } else if (autoOn && now - lastAcceptAt > 1200L) {
                     lastActionAt = now
                     lastActionAtByApp[parsed.appSource] = now
                     if (config.humanDelayEnabled) {
                         delay(Random.nextLong(280L, 520L))
                     }
                     if (!isOfferAppStillSafeToTap(config, parsed.appSource)) {
-                        log("Auto-aceitar $appTag cancelado: janela mudou durante o atraso (protecao contra toque errado)")
+                        log("$label $appTag cancelado: janela mudou durante o atraso (protecao contra toque errado)")
                     } else {
                         val accepted = performAcceptForOffer(parsed)
-                        log("Auto-aceitar $appTag disparado em ${parsed.acceptTapPoint} (sucesso=$accepted)")
-                        if (accepted) {
-                            dualCoordinator.onRideAccepted(parsed, config, priceFmt, now)?.let { evt ->
-                                log(evt.message)
-                                syncFloatingPill(config, true)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Decision.INTER_ZONE -> {
-                val active = conflict.activeRide
-                val activeDest = active?.dropoffAddress?.ifBlank { active.pickupAddress }.orEmpty()
-                val statusText = when {
-                    blockedByConflict -> "DUPLO ACEITE BLOQUEADO"
-                    config.autoAcceptInterZone -> "ACEITANDO"
-                    else -> "VOCÊ DECIDE"
-                }
-                val finalChecklist = if (blockedByConflict) {
-                    "🔒 ${active?.appSource} ativo${if (activeDest.isNotBlank()) " (Dest: $activeDest)" else ""}\n$checklist"
-                } else {
-                    checklist
-                }
-                maybeShowBanner(
-                    RideCardModel(
-                        decision = Decision.INTER_ZONE,
-                        appSource = parsed.appSource,
-                        title = if (blockedByConflict) "🔒 Em viagem (${active?.appSource ?: "?"})" else "Corrida entre zonas?",
-                        statusLabel = statusText,
-                        priceText = priceFmt.ifEmpty { null },
-                        hourlyText = hrFmt.ifEmpty { null },
-                        secondaryMetrics = secondaryList,
-                        fuelText = fuelEstimate?.costText,
-                        profitText = profitLabel,
-                        profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
-                        checklist = finalChecklist,
-                        autoHideMs = bannerHideMs
-                    )
-                )
-
-                val lastAcceptAt = lastActionAtByApp[parsed.appSource] ?: 0L
-                if (blockedByConflict) {
-                    log("🔒 Auto-aceite entre zonas bloqueado $appTag: em corrida no app ${active?.appSource}")
-                } else if (config.autoAcceptInterZone && now - lastAcceptAt > 1200L) {
-                    lastActionAt = now
-                    lastActionAtByApp[parsed.appSource] = now
-                    if (config.humanDelayEnabled) {
-                        delay(Random.nextLong(280L, 520L))
-                    }
-                    if (!isOfferAppStillSafeToTap(config, parsed.appSource)) {
-                        log("Auto-aceitar entre zonas $appTag cancelado: janela mudou durante o atraso")
-                    } else {
-                        val accepted = performAcceptForOffer(parsed)
-                        log("Auto-aceitar entre zonas $appTag disparado em ${parsed.acceptTapPoint} (sucesso=$accepted)")
-                        if (accepted) {
-                            dualCoordinator.onRideAccepted(parsed, config, priceFmt, now)?.let { evt ->
-                                log(evt.message)
-                                syncFloatingPill(config, true)
-                            }
-                        }
+                        log("$label $appTag disparado em ${parsed.acceptTapPoint} (sucesso=$accepted)${if (chainPlan != null) " • ENCAIXE após ${chainPlan.activeApp}" else ""}")
+                        if (accepted) registerAccepted(parsed, config, priceFmt, now)
                     }
                 }
             }
@@ -1381,44 +1953,60 @@ class UberAccessibilityService : AccessibilityService() {
                         autoHideMs = bannerHideMs
                     )
                 )
+                scheduleShotWithCard("RETORNO")
             }
 
             Decision.OUTSIDE_AREA -> {
-                if (config.autoRejectEnabled) {
-                    maybeShowBanner(
-                        RideCardModel(
-                            decision = Decision.OUTSIDE_AREA,
-                            appSource = parsed.appSource,
-                            title = "Fora dos critérios",
-                            statusLabel = "RECUSANDO",
-                            priceText = priceFmt.ifEmpty { null },
-                            hourlyText = hrFmt.ifEmpty { null },
-                            secondaryMetrics = secondaryList,
-                            fuelText = fuelEstimate?.costText,
-                            profitText = profitLabel,
-                            profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
-                            checklist = checklist,
-                            autoHideMs = bannerHideMs
-                        )
+                val status = if (config.autoRejectEnabled) "RECUSANDO" else "RECUSA OFF"
+                maybeShowBanner(
+                    RideCardModel(
+                        decision = Decision.OUTSIDE_AREA,
+                        appSource = parsed.appSource,
+                        title = if (chainPlan != null) "Encaixe ruim (após a $chainApp)" else "Fora dos critérios",
+                        statusLabel = status,
+                        priceText = priceFmt.ifEmpty { null },
+                        hourlyText = hrFmt.ifEmpty { null },
+                        secondaryMetrics = secondaryList,
+                        fuelText = fuelEstimate?.costText,
+                        profitText = profitLabel,
+                        profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                        checklist = (negotiationLines + checklist).joinToString("\n"),
+                        autoHideMs = bannerHideMs
                     )
+                )
+                scheduleShotWithCard(status)
+                if (config.autoRejectEnabled) {
+                    ledger.onAutoRejected(parsed, decided.reason, now)
+                    executeSurgicalReject(parsed, config, appTag, now)
+                }
+            }
+
+            Decision.UNCERTAIN -> {
+                // Local incerto: NUNCA aceita sozinho. Recusa automatica so se voce ativou "Na dúvida, recusar".
+                val rejectNow = config.rejectUncertainLocation && config.autoRejectEnabled
+                val status = if (rejectNow) "RECUSANDO (DÚVIDA)" else "VOCÊ DECIDE"
+                maybeShowBanner(
+                    RideCardModel(
+                        decision = Decision.UNCERTAIN,
+                        appSource = parsed.appSource,
+                        title = "Local incerto — confira",
+                        statusLabel = status,
+                        priceText = priceFmt.ifEmpty { null },
+                        hourlyText = hrFmt.ifEmpty { null },
+                        secondaryMetrics = secondaryList,
+                        fuelText = fuelEstimate?.costText,
+                        profitText = profitLabel,
+                        profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                        checklist = checklist,
+                        autoHideMs = bannerHideMs
+                    )
+                )
+                scheduleShotWithCard(status)
+                if (rejectNow) {
+                    ledger.onAutoRejected(parsed, decided.reason, now)
                     executeSurgicalReject(parsed, config, appTag, now)
                 } else {
-                    maybeShowBanner(
-                        RideCardModel(
-                            decision = Decision.OUTSIDE_AREA,
-                            appSource = parsed.appSource,
-                            title = "Fora dos critérios",
-                            statusLabel = "RECUSA OFF",
-                            priceText = priceFmt.ifEmpty { null },
-                            hourlyText = hrFmt.ifEmpty { null },
-                            secondaryMetrics = secondaryList,
-                            fuelText = fuelEstimate?.costText,
-                            profitText = profitLabel,
-                            profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
-                            checklist = checklist,
-                            autoHideMs = bannerHideMs
-                        )
-                    )
+                    log("⚠ $appTag Local incerto: auto-aceite NAO disparado (${decided.reason})")
                 }
             }
 
@@ -1428,12 +2016,214 @@ class UberAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun fmtBr(v: Double): String = String.format(Locale("pt", "BR"), "%.2f", v)
+
+    /**
+     * Tela "Sua oferta" da Negocia. So age quando FOI O APP que abriu o lapis (contraproposta em andamento):
+     * escreve o valor, confere o que apareceu no campo e so entao toca em "Confirmar oferta".
+     * Aberta por voce = o app nao toca em nada.
+     */
+    private suspend fun handleCounterOfferEditor(parsed: ParsedRideOffer, config: FilterConfig, now: Long) {
+        val job = counterJob
+        if (job == null || !job.active) {
+            if (now - lastManualEditorLogAt > 30_000L) {
+                lastManualEditorLogAt = now
+                log("[NEGOCIA] Tela do lápis aberta por você: o app não toca em nada (campo: ${parsed.editorValue?.let { fmtBr(it) } ?: "?"})")
+            }
+            return
+        }
+        if (config.actionsPaused) {
+            counterJob = job.copy(stage = CounterOfferFlow.Stage.ABORTED)
+            onCounterOfferAborted(job, "o filtro entrou em PAUSA")
+            return
+        }
+        if (!isOfferAppStillSafeToTap(config, job.app)) return
+        // O nosso card nao segura toques, mas cobre o topo da tela do lapis na leitura: sai da frente
+        if (job.stage == CounterOfferFlow.Stage.OPENING_EDITOR) overlayManager.hideBanner()
+        val (next, action) = CounterOfferFlow.onEditor(job, parsed.editorValue, parsed.editorPlusTap, parsed.editorConfirmTap, now)
+        counterJob = next
+        val shown = parsed.editorValue?.let { fmtBr(it) } ?: "?"
+        when (action) {
+            is CounterOfferFlow.Action.SetText -> {
+                val ok = setTextInFocusedField(action.text)
+                log("[NEGOCIA] [${job.app}] escrevi ${action.text} no campo (aceitou=$ok; campo mostrava $shown)")
+            }
+            is CounterOfferFlow.Action.TapPlus -> {
+                repeat(action.times) {
+                    dispatchTap(action.at.first, action.at.second)
+                    delay(170L)
+                }
+                log("[NEGOCIA] [${job.app}] o campo não aceitou o texto: toquei ${action.times}x em +0,5 (campo mostrava $shown)")
+            }
+            is CounterOfferFlow.Action.TapConfirm -> {
+                val ok = dispatchTap(action.at.first, action.at.second)
+                log("[NEGOCIA] [${job.app}] campo mostra R$ ${fmtBr(action.value)}: toquei em Confirmar oferta (sucesso=$ok)")
+            }
+            is CounterOfferFlow.Action.Abort -> onCounterOfferAborted(next, action.reason)
+            else -> Unit
+        }
+    }
+
+    /** Contraproposta em andamento e a tela nao e a do lapis: fechou depois de confirmar (= enviada) ou travou. */
+    private fun advanceCounterOfferJob(now: Long) {
+        val job = counterJob ?: return
+        if (!job.active) return
+        val (next, action) = CounterOfferFlow.onOtherScreen(job, now)
+        counterJob = next
+        when (action) {
+            is CounterOfferFlow.Action.Sent -> {
+                log("[NEGOCIA] [${job.app}] ✔ contraproposta de R$ ${fmtBr(action.value)} enviada (a tela do lápis fechou). Agora é com o passageiro.")
+                if (kotlin.math.abs(action.value - job.target) > 0.009) {
+                    ledger.onCounterOffer(job.app, job.fingerprint, action.value, now)
+                }
+            }
+            is CounterOfferFlow.Action.Abort -> onCounterOfferAborted(next, action.reason)
+            else -> Unit
+        }
+    }
+
+    private fun onCounterOfferAborted(job: CounterOfferFlow.Job, reason: String) {
+        val ask = fmtBr(job.target)
+        log("[NEGOCIA] [${job.app}] ⚠ desisti da contraproposta: $reason. Se ainda der, peça R$ $ask você mesmo.")
+        if (configRepository.load().showRideInfoBannerEnabled) {
+            overlayManager.showRideCard(
+                RideCardModel(
+                    decision = Decision.UNCERTAIN,
+                    appSource = job.app,
+                    title = "Negocie: digite $ask",
+                    statusLabel = "VOCÊ NEGOCIA",
+                    checklist = "💬 Negocie: não consegui enviar sozinho\n💬 Negocie: no lápis, digite $ask",
+                    autoHideMs = NEGOTIATE_CARD_MIN_MS
+                ),
+                null
+            )
+        }
+    }
+
+    /**
+     * Escreve no campo com foco (a tela "Sua oferta" da 99) pela acessibilidade, como "colar":
+     * nao usa o teclado, entao nao depende do teclado instalado.
+     */
+    private fun setTextInFocusedField(text: String): Boolean {
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { roots.add(it) }
+        runCatching { windows }.getOrNull()?.forEach { w ->
+            val r = runCatching { w.root }.getOrNull() ?: return@forEach
+            val pkg = r.packageName?.toString()?.lowercase().orEmpty()
+            if (pkg.contains("99") && roots.none { it == r }) roots.add(r)
+        }
+        for (root in roots) {
+            val pkg = root.packageName?.toString()?.lowercase().orEmpty()
+            if (pkg == packageName.lowercase()) continue
+            val focused = runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
+            val target = focused?.takeIf { it.isEditable } ?: findEditableNode(root, 0)
+            if (target != null) {
+                val args = Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                }
+                if (runCatching { target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) }.getOrDefault(false)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun findEditableNode(node: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
+        if (depth > 30) return null
+        if (node.isEditable) return node
+        for (i in 0 until node.childCount) {
+            val child = runCatching { node.getChild(i) }.getOrNull() ?: continue
+            findEditableNode(child, depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    /** Aceite que deu certo: painel de Ganhos + trava 99/Uber (1a corrida ou encaixe na fila). */
+    private fun registerAccepted(parsed: ParsedRideOffer, config: FilterConfig, priceFmt: String, now: Long) {
+        ledger.onAccepted(parsed, now)
+        dualCoordinator.onRideAccepted(parsed, config, priceFmt, now)?.let { evt ->
+            log(evt.message)
+            syncFloatingPill(config, true)
+        }
+    }
+
+    /**
+     * Botao do card "Aceitar se tocar de novo":
+     *  - se a oferta ainda esta na tela (ninguem recusou), aceita agora;
+     *  - senao, guarda a corrida por 20 min: se ela tocar de novo, o app aceita sozinho.
+     */
+    private fun onQuickAcceptTapped(parsed: ParsedRideOffer, signature: OfferSignature) {
+        serviceScope.launch {
+            val now = System.currentTimeMillis()
+            val cfg = configRepository.load()
+            val stillOnScreen = lastFingerprint == parsed.fingerprint &&
+                now - lastOfferSeenAt < 2500L &&
+                lastRejectOfferFingerprint != parsed.fingerprint
+            if (stillOnScreen && isOfferAppStillSafeToTap(cfg, parsed.appSource)) {
+                val ok = performAcceptForOffer(parsed)
+                log("[LIBERADA] Botão do card: oferta ainda na tela, aceite disparado (sucesso=$ok) • ${parsed.pickupAddress} → ${parsed.dropoffAddress}")
+                if (ok) {
+                    registerAccepted(parsed, cfg, parsed.ridePrice?.let { String.format(Locale("pt", "BR"), "R$ %.2f", it) } ?: "", now)
+                    overlayManager.confirmQuickAction("✓ Aceita")
+                    return@launch
+                }
+            }
+            acceptOverrides.removeAll { it.sig.matches(signature) }
+            acceptOverrides.add(AcceptOverride(signature, now + QUICK_ACCEPT_WINDOW_MS))
+            log(
+                "[LIBERADA] Você liberou esta corrida: se ela tocar de novo nos próximos ${QUICK_ACCEPT_WINDOW_MS / 60_000} min, " +
+                    "o app aceita sozinho • ${parsed.appSource}: ${parsed.pickupAddress} → ${parsed.dropoffAddress}"
+            )
+            overlayManager.confirmQuickAction("✓ Aceito se tocar de novo")
+        }
+    }
+
+    /**
+     * Junta o card do filtro (em cima) com a foto da oferta (embaixo) no MESMO arquivo da foto,
+     * para comparar o que o app decidiu com o que a 99/Uber mostrou.
+     */
+    private fun composeShotWithCard(path: String, card: Bitmap, caption: String) {
+        try {
+            val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+            val shot = BitmapFactory.decodeFile(path, opts)
+            if (shot == null) {
+                card.recycle()
+                return
+            }
+            val w = shot.width
+            val pad = (w * 0.03f).toInt()
+            val cardW = w - pad * 2
+            val cardScale = cardW.toFloat() / card.width
+            val cardH = (card.height * cardScale).toInt()
+            val capH = (w * 0.07f).toInt()
+            val out = Bitmap.createBitmap(w, pad + capH + cardH + pad + shot.height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(out)
+            canvas.drawColor(android.graphics.Color.parseColor("#101010"))
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.parseColor("#CCFFFFFF")
+                textSize = capH * 0.55f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            canvas.drawText(caption, pad.toFloat(), pad + capH * 0.7f, textPaint)
+            canvas.drawBitmap(card, null, Rect(pad, pad + capH, pad + cardW, pad + capH + cardH), Paint(Paint.FILTER_BITMAP_FLAG))
+            canvas.drawBitmap(shot, 0f, (pad + capH + cardH + pad).toFloat(), null)
+            FileOutputStream(path).use { out.compress(Bitmap.CompressFormat.JPEG, 80, it) }
+            shot.recycle()
+            out.recycle()
+            card.recycle()
+        } catch (e: Throwable) {
+            log("⚠ Foto com o card: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
     private suspend fun executeSurgicalReject(
         parsed: ParsedRideOffer,
         config: FilterConfig,
         appTag: String,
         now: Long
     ) {
+        dualCoordinator.forgetCandidateOffer(parsed.appSource)
         lastActionAt = now
         lastActionAtByApp[parsed.appSource] = now
         if (config.humanDelayEnabled) {
@@ -1697,6 +2487,7 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        log("[SERVICO] O Android interrompeu a leitura de tela (onInterrupt)")
         overlayManager.hideAll()
     }
 
@@ -1717,14 +2508,25 @@ class UberAccessibilityService : AccessibilityService() {
             StandaloneAdbBridge.startConnectAutoMonitor(appCtx) { res ->
                 if (res.outcome == StandaloneAdbBridge.ConnectOutcome.CONNECTED) {
                     log("✔ ${res.detail}")
+                    // Se fomos nos que ligamos a Depuracao por Wi-Fi, desligamos de novo: o motor continua rodando
+                    SetupChecks.restoreWirelessDebuggingIfWeEnabled(appCtx)
                     AdbPairingReceiver.showResultNotification(appCtx, ok = true, message = res.detail)
                 }
+            }
+            // Depois de reiniciar o celular: ja pareado + num Wi-Fi -> o proprio app liga a Depuracao por Wi-Fi
+            // (o monitor acima conecta e sobe o motor). Precisa do pareamento feito nesta versao ou mais nova.
+            if (SetupChecks.maybeAutoEnableWirelessDebugging(appCtx)) {
+                log("Religando o motor interno sozinho (Depuração por Wi-Fi ligada pelo app)...")
             }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        if (::ledger.isInitialized) runCatching { ledger.flush() }
+        log("Servico encerrado (onDestroy)")
+        running = false
+        FilterTileService.requestRefresh(applicationContext)
         overlayManager.hideAll()
         StandaloneAdbBridge.stopConnectAutoMonitor()
         ShizukuTapBridge.release(applicationContext)
@@ -1733,7 +2535,23 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private const val QUICK_ACCEPT_LABEL = "Aceitar se tocar de novo"
+        private const val QUICK_ACCEPT_WINDOW_MS = 20 * 60_000L
+        /** Card da Negocia fica pelo menos 12 s: da tempo de ler quanto pedir antes de tocar no botao da 99. */
+        private const val NEGOTIATE_CARD_MIN_MS = 12_000L
+
         private const val TAG = "UberFilter"
+
+        /** true entre onServiceConnected e onDestroy: separa "ligado na Acessibilidade" de "rodando de verdade". */
+        @Volatile
+        var running: Boolean = false
+
+        @Volatile
+        private var offRequested: Boolean = false
+
+        private var lastConfigSummary: Map<String, String> = emptyMap()
+        private var lastLoggedForeground: String = ""
+        private var lastScannerErrorLogAt: Long = 0L
         private const val FAV_CHANNEL_ID = "uber_filter_favorites_alerts"
     }
 }

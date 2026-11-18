@@ -27,5 +27,9 @@ data class RideCardModel(
     val profitText: String? = null,
     val profitPositive: Boolean = true,
     val checklist: String = "",
-    val autoHideMs: Long = 5000L
+    // Cor da zona de destino (pintura por zona); null = cor normal da decisao
+    val zoneColorHex: String? = null,
+    val autoHideMs: Long = 5000L,
+    // Botao discreto grudado embaixo do card (ex.: "Aceitar se tocar de novo"); null = sem botao
+    val quickActionLabel: String? = null
 )

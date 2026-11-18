@@ -1,9 +1,12 @@
 package com.ruan.uberareafilter.map
 
+import com.ruan.uberareafilter.engine.AddressParser
 import com.ruan.uberareafilter.engine.AreaEvaluator
+import com.ruan.uberareafilter.engine.GeoMath
 import com.ruan.uberareafilter.engine.TextNormalizer
 import com.ruan.uberareafilter.model.MapZone
 import com.ruan.uberareafilter.model.ZoneShape
+import com.ruan.uberareafilter.model.ZoneStreetIndex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -14,6 +17,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.GZIPInputStream
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.atan
 import kotlin.math.cos
 import kotlin.math.floor
@@ -96,6 +101,157 @@ object OpenFreeMapStreetFetcher {
         perZoneSet.mapValues { (_, set) -> set.toList() }
     }
 
+    // ------------------------------------------------------------------
+    // Indice de ruas INTERNAS x de DIVISA (base da aprovacao so pelo nome)
+    // ------------------------------------------------------------------
+
+    private const val INDEX_MARGIN_DEG = 0.0045 // ~500 m ao redor da zona: enxerga a rua saindo da divisa
+    private const val INDEX_MAX_TILES = 72
+    private const val SAMPLE_STEP_M = 12.0
+    private const val TOUCH_TOLERANCE_M = 20.0     // encosta na zona (mesmo criterio da lista antiga)
+    private const val INTERNAL_MIN_DEPTH_M = -10.0 // pode terminar NA divisa (rua sem saida / esquina)...
+    private const val BORDER_BAND_M = 25.0         // ...mas nao pode CORRER ao longo da divisa
+    private const val MAX_BAND_LENGTH_M = 120.0
+    private const val BLOCKED_TOUCH_M = 25.0
+
+    private class StreetStat(val name: String) {
+        var touches = false
+        var minDepth = Double.POSITIVE_INFINITY
+        var bandLength = 0.0
+        var hitsBlocked = false
+    }
+
+    /**
+     * Para cada Zona Permitida, classifica as ruas em:
+     *  - INTERNA: todo o traçado (inclusive homonimos ate ~500 m da zona) fica dentro da zona,
+     *    sem correr pela divisa e sem passar por Zona Proibida -> pode ser aprovada so pelo nome;
+     *  - DE DIVISA/TOCA: encosta na zona mas tambem sai dela -> precisa do numero geocodificado.
+     * Se algum tile da regiao nao baixar, a zona fica marcada como incompleta (complete=false)
+     * e o motor NUNCA aprova so pelo nome nessa zona.
+     */
+    suspend fun buildStreetIndex(
+        allowedZones: List<MapZone>,
+        blockedZones: List<MapZone>
+    ): Map<Long, ZoneStreetIndex> = withContext(Dispatchers.IO) {
+        if (allowedZones.isEmpty()) return@withContext emptyMap()
+        val template = resolveTileTemplate() ?: return@withContext emptyMap()
+
+        val expanded = allowedZones.mapNotNull { z -> buildZoneBounds(z, INDEX_MARGIN_DEG) }
+        if (expanded.isEmpty()) return@withContext emptyMap()
+
+        val tilesPerZone = expanded.associate { zb -> zb.zone.id to collectNeededTiles(listOf(zb)).toSet() }
+        val allTiles = LinkedHashSet<Pair<Int, Int>>()
+        tilesPerZone.values.forEach { allTiles.addAll(it) }
+        val toDownload = allTiles.take(INDEX_MAX_TILES)
+
+        val downloaded = HashMap<Pair<Int, Int>, ByteArray>()
+        coroutineScope {
+            toDownload.chunked(6).forEach { batch ->
+                batch.map { (tx, ty) ->
+                    async {
+                        val url = template
+                            .replace("{z}", ZOOM.toString())
+                            .replace("{x}", tx.toString())
+                            .replace("{y}", ty.toString())
+                        downloadBytes(url)?.let { bytes -> (tx to ty) to bytes }
+                    }
+                }.awaitAll().filterNotNull().forEach { (k, v) -> downloaded[k] = v }
+            }
+        }
+        if (downloaded.isEmpty()) return@withContext emptyMap()
+
+        val features = withContext(Dispatchers.Default) {
+            downloaded.flatMap { (tile, bytes) -> decodeNamedFeatures(bytes, ZOOM, tile.first, tile.second) }
+        }
+
+        val now = System.currentTimeMillis()
+        val result = LinkedHashMap<Long, ZoneStreetIndex>()
+        withContext(Dispatchers.Default) {
+            for (zb in expanded) {
+                val zone = zb.zone
+                val complete = tilesPerZone[zone.id].orEmpty().all { downloaded.containsKey(it) }
+                val stats = LinkedHashMap<String, StreetStat>()
+
+                for ((name, lines) in features) {
+                    val key = AddressParser.streetKeyOf(name) ?: continue
+                    val statKey = "${key.type ?: "-"}|${key.core}"
+                    for (line in lines) {
+                        if (!lineBoxIntersects(line, zb)) continue
+                        val stat = stats.getOrPut(statKey) { StreetStat(name) }
+                        sampleLine(line) { lat, lng, stepM ->
+                            val dZone = GeoMath.depthMeters(lat, lng, zone)
+                            if (dZone >= -TOUCH_TOLERANCE_M) stat.touches = true
+                            // "Fora" = fora da UNIAO das zonas verdes: rua que passa de Olaria para Penha
+                            // (duas zonas vizinhas) continua interna.
+                            var d = dZone
+                            for (other in allowedZones) {
+                                if (other.id == zone.id) continue
+                                val d2 = GeoMath.depthMeters(lat, lng, other)
+                                if (d2 > d) d = d2
+                            }
+                            if (d < stat.minDepth) stat.minDepth = d
+                            if (abs(d) < BORDER_BAND_M) stat.bandLength += stepM
+                            if (!stat.hitsBlocked && blockedZones.any { b -> GeoMath.depthMeters(lat, lng, b) >= -BLOCKED_TOUCH_M }) {
+                                stat.hitsBlocked = true
+                            }
+                        }
+                    }
+                }
+
+                val touching = stats.values.filter { it.touches }
+                val internal = touching.filter {
+                    it.minDepth >= INTERNAL_MIN_DEPTH_M && it.bandLength <= MAX_BAND_LENGTH_M && !it.hitsBlocked
+                }
+                result[zone.id] = ZoneStreetIndex(
+                    zoneId = zone.id,
+                    geometryHash = GeoMath.indexKeyFor(zone, allowedZones + blockedZones),
+                    complete = complete,
+                    internalStreets = internal.map { it.name }.sortedWith(String.CASE_INSENSITIVE_ORDER),
+                    touchingStreets = touching.map { it.name }.sortedWith(String.CASE_INSENSITIVE_ORDER),
+                    builtAtMs = now
+                )
+            }
+        }
+        result
+    }
+
+    private fun lineBoxIntersects(line: List<Pair<Double, Double>>, zb: ZoneBounds): Boolean {
+        var lMinLat = Double.POSITIVE_INFINITY
+        var lMaxLat = Double.NEGATIVE_INFINITY
+        var lMinLng = Double.POSITIVE_INFINITY
+        var lMaxLng = Double.NEGATIVE_INFINITY
+        for ((lat, lng) in line) {
+            if (lat < lMinLat) lMinLat = lat
+            if (lat > lMaxLat) lMaxLat = lat
+            if (lng < lMinLng) lMinLng = lng
+            if (lng > lMaxLng) lMaxLng = lng
+        }
+        return !(lMaxLat < zb.minLat || lMinLat > zb.maxLat || lMaxLng < zb.minLng || lMinLng > zb.maxLng)
+    }
+
+    /** Percorre a linha a cada ~12 m (inclui vertices). */
+    private inline fun sampleLine(
+        line: List<Pair<Double, Double>>,
+        onSample: (lat: Double, lng: Double, stepM: Double) -> Unit
+    ) {
+        if (line.size == 1) {
+            onSample(line[0].first, line[0].second, 0.0)
+            return
+        }
+        for (i in 0 until line.size - 1) {
+            val a = line[i]
+            val b = line[i + 1]
+            val segM = AreaEvaluator.haversineKm(a.first, a.second, b.first, b.second) * 1000.0
+            val n = ceil(segM / SAMPLE_STEP_M).toInt().coerceIn(1, 400)
+            val step = segM / n
+            val startS = if (i == 0) 0 else 1
+            for (s in startS..n) {
+                val t = s.toDouble() / n
+                onSample(a.first + (b.first - a.first) * t, a.second + (b.second - a.second) * t, step)
+            }
+        }
+    }
+
     internal fun extractStreetsFromTile(
         pbfBytes: ByteArray,
         zoom: Int,
@@ -117,6 +273,26 @@ object OpenFreeMapStreetFetcher {
         zoneBounds: List<ZoneBounds>,
         outPerZone: Map<Long, MutableSet<String>>
     ) {
+        for ((streetName, lines) in decodeNamedFeatures(pbfBytes, zoom, tx, ty)) {
+            for (zb in zoneBounds) {
+                if (anyLineIntersectsSingleBounds(lines, zb)) {
+                    outPerZone[zb.zone.id]?.add(streetName)
+                }
+            }
+        }
+    }
+
+    /**
+     * Decodifica um tile MVT e devolve (nome do logradouro/praca, linhas em lat/lng).
+     * Mesmo criterio de sempre: camada transportation_name + pracas/largos das camadas park/poi.
+     */
+    internal fun decodeNamedFeatures(
+        pbfBytes: ByteArray,
+        zoom: Int,
+        tx: Int,
+        ty: Int
+    ): List<Pair<String, List<List<Pair<Double, Double>>>>> {
+        val out = mutableListOf<Pair<String, List<List<Pair<Double, Double>>>>>()
         for ((fieldNo, _, layerBytes) in parseProtoMessages(pbfBytes)) {
             if (fieldNo != 3 || layerBytes !is ByteArray) continue
 
@@ -183,14 +359,10 @@ object OpenFreeMapStreetFetcher {
 
                 val lines = decodeGeometryLines(g, extent, zoom, tx, ty)
                 if (lines.isEmpty()) continue
-
-                for (zb in zoneBounds) {
-                    if (anyLineIntersectsSingleBounds(lines, zb)) {
-                        outPerZone[zb.zone.id]?.add(streetName)
-                    }
-                }
+                out.add(streetName to lines)
             }
         }
+        return out
     }
 
     private fun anyLineIntersectsSingleBounds(
@@ -245,8 +417,7 @@ object OpenFreeMapStreetFetcher {
         return false
     }
 
-    private fun buildZoneBounds(zone: MapZone): ZoneBounds? {
-        val margin = 0.0004 // ~45m
+    private fun buildZoneBounds(zone: MapZone, margin: Double = 0.0004 /* ~45m */): ZoneBounds? {
         return when (zone.shape) {
             ZoneShape.POLYGON -> {
                 if (zone.points.size < 3) return null

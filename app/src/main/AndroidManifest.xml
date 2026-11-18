@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -7,6 +8,14 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Abre o pedido "Permitir" de bateria sem restrição (o filtro não é fechado no meio do turno) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Não é pedida por diálogo: só é concedida pelo pareamento do motor interno (pm grant), uma vez.
+         Com ela o app religa a Depuração por Wi-Fi depois de reiniciar e liga a própria Acessibilidade. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
@@ -14,6 +23,8 @@
 
     <application
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@drawable/ic_app_logo"
         android:roundIcon="@drawable/ic_app_logo"
         android:label="@string/app_name"
@@ -38,8 +49,59 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.EarningsActivity"
+            android:exported="false"
+            android:label="Ganhos" />
+
+        <activity
             android:name=".ui.WhatsNewActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".ui.SetupWizardActivity"
+            android:exported="false"
+            android:label="@string/wizard_title" />
+
+        <!-- Receber zonas de outro motorista: tocar no arquivo .json no WhatsApp -> "Filtro Inteligente" -->
+        <activity
+            android:name=".ui.ZoneImportActivity"
+            android:exported="true"
+            android:label="Receber zonas no Filtro"
+            android:theme="@style/Theme.FiltroInteligente.Translucent">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+        </activity>
+
+        <!-- Arquivo das zonas para mandar pelo WhatsApp (cache/compartilhar) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.arquivos"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <service
             android:name=".service.UberAccessibilityService"
@@ -52,6 +114,17 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <service
+            android:name=".service.FilterTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_shield"
+            android:label="Filtro"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
         </service>
 
         <provider

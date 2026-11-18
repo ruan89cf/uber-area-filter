@@ -1,0 +1,22 @@
+FILTRO INTELIGENTE - COMO INSTALAR (uns 5 minutos)
+
+1) Baixe o arquivo FiltroInteligente.apk que mandei aqui e toque nele.
+
+2) Se aparecer "seu telefone não pode instalar apps desconhecidos desta fonte":
+   toque em CONFIGURAÇÕES, ligue "Permitir desta fonte" e volte.
+
+3) Toque em INSTALAR.
+   Se o Play Protect avisar ("App não verificado" ou "Bloqueado"):
+   toque em "Mais detalhes" e depois em "Instalar mesmo assim".
+   Ele avisa só porque o app não está na Play Store.
+
+4) Abra o Filtro Inteligente. O ASSISTENTE abre sozinho e mostra cada passo,
+   com um botão que leva direto para a tela certa:
+   - Ligar o leitor de corridas (Acessibilidade)
+   - Notificações e bateria
+   - Só para a Uber: toque automático (modo desenvolvedor e Depuração por Wi-Fi, uma vez só)
+
+Apareceu "Configuração restrita" ao ligar a Acessibilidade? Normal para app de fora
+da Play Store. O assistente mostra como liberar (3 toques).
+
+ATUALIZAR: é só instalar o arquivo novo por cima. Suas zonas e ajustes continuam.

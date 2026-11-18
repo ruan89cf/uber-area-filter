@@ -94,18 +94,18 @@ object AppCaptureRouter {
         return when (CaptureMode.from(config)) {
             CaptureMode.NONE -> null
 
-            // Especializacao total 99: sem heuristicas da Uber que possam bloquear formatos novos ("Taxa99" + "2 min (584 m)")
-            CaptureMode.SINGLE_99 -> {
-                val parsed = nineNineModule.parseOrderedLines(
-                    orderedLines = orderedLines,
-                    bitmap = bitmap,
-                    screenWidth = screenWidth,
-                    screenHeight = screenHeight,
-                    config = config,
-                    strictSingleApp = true
-                )
-                parsed
-            }
+            // Especializacao total 99: sem heuristicas da Uber que possam bloquear formatos novos ("Taxa99" + "2 min (584 m)").
+            // Com 1 app so, toda tela lida e desse app: as etapas da corrida (em viagem, "Voce cancelou a corrida",
+            // tela inicial) tambem voltam, senao o painel de Ganhos nao ve cancelamentos nem aceites feitos na mao.
+            CaptureMode.SINGLE_99 -> nineNineModule.parseOrderedLines(
+                orderedLines = orderedLines,
+                bitmap = bitmap,
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                config = config,
+                strictSingleApp = true,
+                includeLifecycleStates = true
+            )
 
             // Especializacao total Uber: sem interferencia da 99 (cobre 1o plano e pop-up em 2o plano)
             CaptureMode.SINGLE_UBER -> {
@@ -117,7 +117,11 @@ object AppCaptureRouter {
                     windowBounds = uberWindowBounds,
                     strictSingleApp = true
                 )
-                if (parsed != null && parsed.isRideOffer) parsed else null
+                if (parsed != null && parsed.isRideOffer) {
+                    parsed
+                } else {
+                    uberModule.parseLifecycleState(orderedLines, uberWindowBounds)
+                }
             }
 
             // Modo simultaneo (99 + Uber ativos juntos)
@@ -233,22 +237,21 @@ object AppCaptureRouter {
             }
         }
 
-        // Quando ha protecao de conflito no modo simultaneo, retorna o estado da tela (em viagem, cancelada, mapa livre)
-        if (config.dualConflictGuardEnabled) {
-            if (preferredAppSource == "UBER" || uberWindowBounds != null) {
-                uberModule.parseLifecycleState(orderedLines, uberWindowBounds)?.let { return it }
-            }
-            if (preferredAppSource == "99" || hasStrong99) {
-                nineNineModule.parseOrderedLines(
-                    orderedLines = orderedLines,
-                    bitmap = bitmap,
-                    screenWidth = screenWidth,
-                    screenHeight = screenHeight,
-                    config = config,
-                    strictSingleApp = false,
-                    includeLifecycleStates = true
-                )?.let { return it }
-            }
+        // Estado da tela (em viagem, cancelada, mapa livre): sempre, nao so com a trava ligada.
+        // A trava decide sozinha se usa (DualRideCoordinator.isActive); o painel de Ganhos precisa sempre.
+        if (preferredAppSource == "UBER" || uberWindowBounds != null) {
+            uberModule.parseLifecycleState(orderedLines, uberWindowBounds)?.let { return it }
+        }
+        if (preferredAppSource == "99" || hasStrong99) {
+            nineNineModule.parseOrderedLines(
+                orderedLines = orderedLines,
+                bitmap = bitmap,
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                config = config,
+                strictSingleApp = false,
+                includeLifecycleStates = true
+            )?.let { return it }
         }
 
         return null
@@ -294,7 +297,9 @@ class NineNineCaptureModule : DriverCaptureModule {
             rejectHints = config.rejectButtonHints,
             strictSingleApp = strictSingleApp
         )
-        val hasOfferOrPrompt = parsed.isRideOffer || parsed.isContinuePrompt || parsed.isRatingScreen
+        // Tela "Sua oferta" (lapis da Negocia) tambem volta: o app so mexe nela quando foi ele que abriu
+        val hasOfferOrPrompt = parsed.isRideOffer || parsed.isContinuePrompt || parsed.isRatingScreen ||
+            parsed.isCounterOfferEditor
         val hasLifecycleState = includeLifecycleStates &&
             (parsed.isInActiveRide || parsed.isCancelledScreen || parsed.isIdleHomeScreen)
         return if (hasOfferOrPrompt || hasLifecycleState) {
@@ -376,6 +381,7 @@ class UberCaptureModule : DriverCaptureModule {
         "usuario cancelou",
         "passageiro cancelou",
         "cliente cancelou",
+        "voce cancelou",
         "viagem cancelada",
         "corrida cancelada",
         "solicitacao cancelada"
@@ -422,7 +428,10 @@ class UberCaptureModule : DriverCaptureModule {
 
         if (norms.isEmpty()) return null
 
-        val isCancelled = norms.any { line -> uberCancelledHints.any { line.contains(it) } }
+        val isCancelled = norms.any { line ->
+            val clean = TextNormalizer.withoutVoiceCancelShortcut(line)
+            uberCancelledHints.any { clean.contains(it) }
+        }
         val isRating = !isCancelled && norms.any { line -> uberRatingHints.any { line.contains(it) } }
         val isActive = !isCancelled && !isRating && norms.any { line -> uberActiveRideHints.any { line.contains(it) } }
         val isIdle = !isCancelled && !isRating && !isActive && norms.any { line -> uberIdleHints.any { line.contains(it) } }
@@ -948,7 +957,8 @@ class UberCaptureModule : DriverCaptureModule {
     }
 
     internal fun normalizeLegOcrNoise(raw: String): String {
-        var s = raw.trim()
+        // Icone do trecho colado nos minutos ("O6 min" -> "6 min"), igual ao visual novo da 99
+        var s = RideOfferParser.stripLegIconNoise(raw)
         // Remove espaco espuriamente inserido ao redor do ponto/virgula decimal ("7. 6 km" -> "7.6 km")
         s = s.replace(Regex("""(\d)\s*([.,])\s*(\d)"""), "$1$2$3")
         // Remove letra/simbolo de marcador solto colado antes de digitos/min ("d 1l minutos", "? 1l min", "b 23 minutos")

@@ -1,42 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Paleta do Filtro Inteligente (modo escuro): azul-marinho do logo com verde de destaque. -->
+<!--
+    Paleta do Filtro Inteligente (modo escuro): grafite QUENTE em vez de azul-marinho.
+    - Fundo #1C1B19 (não preto puro): preto absoluto com texto claro cria "halo" e cansa no escuro.
+    - Texto #E8E5DE (não branco puro) e verde #72CC97 (o antigo #00E676 era neon e ofuscava).
+-->
 <resources>
-    <color name="fi_primary">#00E676</color>
-    <color name="fi_on_primary">#00391A</color>
-    <color name="fi_primary_container">#0C3B26</color>
-    <color name="fi_on_primary_container">#8CF5BE</color>
-    <color name="fi_primary_inverse">#007A45</color>
+    <color name="fi_primary">#2FD07F</color>
+    <color name="fi_on_primary">#00210F</color>
+    <color name="fi_primary_container">#103B26</color>
+    <color name="fi_on_primary_container">#A6F0C6</color>
+    <color name="fi_primary_inverse">#111111</color>
 
-    <color name="fi_secondary">#FFC857</color>
-    <color name="fi_on_secondary">#3D2E00</color>
-    <color name="fi_secondary_container">#453400</color>
-    <color name="fi_on_secondary_container">#FFE08A</color>
+    <color name="fi_secondary">#FFD84D</color>
+    <color name="fi_on_secondary">#2A2200</color>
+    <color name="fi_secondary_container">#4A3D00</color>
+    <color name="fi_on_secondary_container">#FFE680</color>
 
-    <color name="fi_tertiary">#B79CFF</color>
-    <color name="fi_on_tertiary">#2A1A66</color>
-    <color name="fi_tertiary_container">#33276B</color>
-    <color name="fi_on_tertiary_container">#E3D9FF</color>
+    <color name="fi_tertiary">#FF8A93</color>
+    <color name="fi_on_tertiary">#4D060C</color>
+    <color name="fi_tertiary_container">#5C1219</color>
+    <color name="fi_on_tertiary_container">#FFD9DC</color>
 
-    <color name="fi_error">#FF6B6B</color>
-    <color name="fi_on_error">#4A0A0A</color>
-    <color name="fi_error_container">#5C1A1A</color>
-    <color name="fi_on_error_container">#FFD6D6</color>
+    <!-- Atenção (status "recomendado"): âmbar legível sobre os fundos do tema -->
+    <color name="fi_warning">#F2B94B</color>
+    <color name="fi_error">#FF7B85</color>
+    <color name="fi_on_error">#4A0E09</color>
+    <color name="fi_error_container">#5C1219</color>
+    <color name="fi_on_error_container">#FFD9DC</color>
 
-    <color name="fi_background">#0A101D</color>
-    <color name="fi_surface">#0F172A</color>
-    <color name="fi_surface_dim">#0A101D</color>
-    <color name="fi_surface_bright">#2A3854</color>
-    <color name="fi_surface_container_lowest">#070C17</color>
-    <color name="fi_surface_container_low">#111A2E</color>
-    <color name="fi_surface_container">#152036</color>
-    <color name="fi_surface_container_high">#1B2842</color>
-    <color name="fi_surface_container_highest">#223150</color>
-    <color name="fi_surface_variant">#26344D</color>
-    <color name="fi_surface_inverse">#E6EDF7</color>
-    <color name="fi_on_surface_inverse">#1B2536</color>
+    <color name="fi_background">#1C1B19</color>
+    <color name="fi_surface">#22211F</color>
+    <color name="fi_surface_dim">#1C1B19</color>
+    <color name="fi_surface_bright">#3B3A36</color>
+    <color name="fi_surface_container_lowest">#161513</color>
+    <color name="fi_surface_container_low">#1F1E1C</color>
+    <color name="fi_surface_container">#262523</color>
+    <color name="fi_surface_container_high">#2D2C29</color>
+    <color name="fi_surface_container_highest">#353431</color>
+    <color name="fi_surface_variant">#33322E</color>
+    <color name="fi_surface_inverse">#E8E5DE</color>
+    <color name="fi_on_surface_inverse">#2B2A27</color>
 
-    <color name="fi_on_surface">#E6EDF7</color>
-    <color name="fi_on_surface_variant">#9FB0C8</color>
-    <color name="fi_outline">#5B6C88</color>
-    <color name="fi_outline_variant">#26344D</color>
+    <color name="fi_on_surface">#E8E5DE</color>
+    <color name="fi_on_surface_variant">#ABA79D</color>
+    <color name="fi_outline">#7A766C</color>
+    <color name="fi_outline_variant">#3A3935</color>
+
+    <color name="fi_console_bg">#161513</color>
+    <color name="fi_console_stroke">#3A3935</color>
 </resources>

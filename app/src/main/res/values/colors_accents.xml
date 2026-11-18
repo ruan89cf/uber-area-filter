@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Acentos por assunto (modo claro). Cada seção do painel tem a sua cor, para o app não ficar
+    só verde e branco e para o olho achar o assunto pela cor:
+      teal = estado / automação · azul = apps e mapa · âmbar = dinheiro · laranja = combustível
+      violeta = regras e 99+Uber · rosa = favoritos e aparência · vermelho = risco · ciano = fotos
+      ardósia = técnico. Versão escura em values-night/colors_accents.xml.
+    "container" = fundo suave do ícone; "on" = cor do ícone/texto sobre esse fundo.
+-->
+<resources>
+    <color name="acc_teal_container">#D3F5E2</color>
+    <color name="acc_teal_on">#03703C</color>
+    <color name="acc_blue_container">#DCE6FD</color>
+    <color name="acc_blue_on">#1A4FB8</color>
+    <color name="acc_amber_container">#FFE14D</color>
+    <color name="acc_amber_on">#1F1A00</color>
+    <color name="acc_orange_container">#FFE2C2</color>
+    <color name="acc_orange_on">#6E3600</color>
+    <color name="acc_violet_container">#E8E3FA</color>
+    <color name="acc_violet_on">#33248A</color>
+    <color name="acc_rose_container">#FCE0E5</color>
+    <color name="acc_rose_on">#9A1638</color>
+    <color name="acc_red_container">#FDDCDF</color>
+    <color name="acc_red_on">#A50F1B</color>
+    <color name="acc_cyan_container">#D3EFF4</color>
+    <color name="acc_cyan_on">#0A4955</color>
+    <color name="acc_slate_container">#E6E6E4</color>
+    <color name="acc_slate_on">#111111</color>
+
+    <!-- Estados da verificação do app -->
+    <color name="st_ok">#05944F</color>
+    <color name="st_ok_container">#D3F5E2</color>
+    <color name="st_warn">#9A6E00</color>
+    <color name="st_warn_container">#FFF0A8</color>
+    <color name="st_bad">#D0101F</color>
+    <color name="st_bad_container">#FDDCDF</color>
+    <color name="st_off">#7A776F</color>
+    <color name="st_off_container">#ECEAE4</color>
+
+    <!-- Cartão principal (degradê muda com o estado do filtro) -->
+    <color name="hero_on_start">#0B0B0B</color>
+    <color name="hero_on_end">#05804A</color>
+    <color name="hero_pause_start">#9C7400</color>
+    <color name="hero_pause_end">#7A4A00</color>
+    <color name="hero_warn_start">#EA1D2C</color>
+    <color name="hero_warn_end">#A50F1B</color>
+    <color name="hero_off_start">#4A4A4A</color>
+    <color name="hero_off_end">#2B2B2B</color>
+    <color name="hero_text">#FFFFFF</color>
+    <color name="hero_text_soft">#E6F7EE</color>
+</resources>

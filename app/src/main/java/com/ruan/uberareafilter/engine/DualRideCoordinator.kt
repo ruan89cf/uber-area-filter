@@ -21,7 +21,9 @@ class DualRideCoordinator {
         val priceText: String,
         val acceptedAt: Long,
         val confirmedActiveOnScreen: Boolean = false,
-        val lastActiveScreenSeenAt: Long = 0L
+        val lastActiveScreenSeenAt: Long = 0L,
+        /** Km da viagem em si (embarque -> destino), para estimar quanto falta quando ainda esta buscando. */
+        val tripKm: Double? = null
     )
 
     enum class ConflictAction {
@@ -51,6 +53,44 @@ class DualRideCoordinator {
         private set
 
     private val recentEvaluatedOffers = mutableMapOf<String, Pair<ActiveRideSlot, Long>>()
+
+    // Andamento da corrida de cada app (lido da tela "em viagem"): etapa e minutos que faltam
+    private data class Progress(val stage: RideProgress.Stage, val etaMin: Int?, val at: Long)
+    private val progress = mutableMapOf<String, Progress>()
+
+    /** A oferta foi recusada pelo app: nao pode virar "corrida ativa" se a tela de viagem aparecer depois. */
+    fun forgetCandidateOffer(appSource: String) {
+        recentEvaluatedOffers.remove(appSource)
+    }
+
+    /**
+     * Etapa da corrida em andamento: TRIP = passageiro a bordo (corrida iniciada, "Finalizar corrida" na tela),
+     * PICKUP = indo buscar / esperando o passageiro. So na TRIP da para encaixar a proxima do outro app.
+     */
+    fun activeStage(): RideProgress.Stage {
+        val current = primaryRide ?: return RideProgress.Stage.UNKNOWN
+        return progress[current.appSource.uppercase()]?.stage ?: RideProgress.Stage.UNKNOWN
+    }
+
+    /**
+     * Quantos minutos faltam para a corrida em andamento terminar (null = nao da para saber).
+     * Na etapa de BUSCA soma o tempo ate o embarque com a viagem em si (km da viagem x 2,4 min/km).
+     */
+    fun remainingMinutes(nowMs: Long = System.currentTimeMillis()): Double? {
+        val current = primaryRide ?: return null
+        val p = progress[current.appSource.uppercase()] ?: return null
+        val eta = p.etaMin ?: return null
+        if (nowMs - p.at > 10 * 60_000L) return null
+        val elapsed = (nowMs - p.at) / 60_000.0
+        return when (p.stage) {
+            RideProgress.Stage.TRIP -> (eta - elapsed).coerceAtLeast(0.0)
+            RideProgress.Stage.PICKUP -> {
+                val trip = current.tripKm ?: return null
+                (eta - elapsed).coerceAtLeast(0.0) + 2.0 + trip * 2.4
+            }
+            RideProgress.Stage.UNKNOWN -> null
+        }
+    }
     private var idleScreenFirstSeenAt: Long = 0L
     private var idleScreenApp: String = ""
 
@@ -60,6 +100,7 @@ class DualRideCoordinator {
     fun reset() {
         primaryRide = null
         queuedRide = null
+        progress.clear()
         idleScreenFirstSeenAt = 0L
         idleScreenApp = ""
     }
@@ -74,7 +115,8 @@ class DualRideCoordinator {
             pickupAddress = offer.pickupAddress.orEmpty(),
             dropoffAddress = offer.dropoffAddress.orEmpty(),
             priceText = priceFormatted,
-            acceptedAt = nowMs
+            acceptedAt = nowMs,
+            tripKm = offer.dropoffDistanceKm
         )
         recentEvaluatedOffers[offer.appSource] = slot to nowMs
     }
@@ -100,8 +142,10 @@ class DualRideCoordinator {
             priceText = priceFormatted,
             acceptedAt = nowMs,
             confirmedActiveOnScreen = false,
-            lastActiveScreenSeenAt = 0L
+            lastActiveScreenSeenAt = 0L,
+            tripKm = offer.dropoffDistanceKm
         )
+        recentEvaluatedOffers.remove(offer.appSource)
 
         val current = primaryRide
         if (current == null) {
@@ -165,10 +209,23 @@ class DualRideCoordinator {
 
         val app = parsed.appSource
 
-        // 1. Cancelamento explicito na tela (comum na Uber: "O usuario cancelou a viagem")
+        // 1. Cancelamento explicito na tela ("Passageiro cancelou", "Voce cancelou a corrida"...)
         if (parsed.isCancelledScreen) {
             idleScreenFirstSeenAt = 0L
-            return releaseAppRide(app, reason = "CANCELADA pelo usuário", nowMs = nowMs)
+            val current = primaryRide
+            val queued = queuedRide
+            if (current != null && queued != null &&
+                current.appSource.equals(app, ignoreCase = true) && queued.appSource.equals(app, ignoreCase = true)
+            ) {
+                // Com a proxima corrida do mesmo app na fila, quem cancela quase sempre e o passageiro da proxima
+                queuedRide = null
+                val keepDest = current.dropoffAddress.ifBlank { current.pickupAddress.ifBlank { "A definir" } }
+                return TransitionEvent(
+                    "🔄 Fila #2 [$app] CANCELADA • Mantendo Corrida #1 [$app] (Dest: $keepDest)",
+                    unlocked = false
+                )
+            }
+            return releaseAppRide(app, reason = "CANCELADA", nowMs = nowMs)
         }
 
         // 2. Tela de 5 estrelas ("Como foi sua corrida") -> viagem concluida!
@@ -181,6 +238,17 @@ class DualRideCoordinator {
         if (parsed.isInActiveRide) {
             idleScreenFirstSeenAt = 0L
             idleScreenApp = ""
+            val snap = RideProgress.parse(parsed.allTexts, nowMs)
+            val key = app.uppercase()
+            val prev = progress[key]
+            val stage = if (snap.stage != RideProgress.Stage.UNKNOWN) snap.stage else prev?.stage ?: RideProgress.Stage.UNKNOWN
+            // Mudou de etapa (buscou o passageiro): o horario de chegada antigo era do embarque, nao vale mais
+            val keepOldEta = prev != null && prev.stage == stage
+            progress[key] = when {
+                snap.etaMinutes != null -> Progress(stage, snap.etaMinutes, nowMs)
+                keepOldEta -> prev!!.copy(stage = stage)
+                else -> Progress(stage, null, nowMs)
+            }
             val current = primaryRide
             if (current == null) {
                 val recent = recentEvaluatedOffers[app]?.takeIf { nowMs - it.second <= 45_000L }?.first
@@ -250,6 +318,9 @@ class DualRideCoordinator {
     private fun releaseAppRide(appSource: String, reason: String, nowMs: Long): TransitionEvent? {
         val current = primaryRide
         val queued = queuedRide
+        if (current != null && current.appSource.equals(appSource, ignoreCase = true)) {
+            progress.remove(appSource.uppercase())
+        }
 
         // Caso a 2a corrida na fila tenha sido cancelada separadamente enquanto a 1a ainda roda
         if (current != null &&

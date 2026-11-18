@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.os.Looper
 import android.provider.Settings
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.AdbPairingRequiredException
@@ -34,6 +35,7 @@ import java.util.TimeZone
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import com.ruan.uberareafilter.setup.SetupChecks
 
 /**
  * Gerencia o canal ADB-over-Wi-Fi embutido diretamente no APK (sem precisar de app Shizuku externo).
@@ -241,11 +243,17 @@ object StandaloneAdbBridge {
         discoveredPairingPort = -1
     }
 
+    /**
+     * Conectado a QUALQUER Wi-Fi, mesmo sem internet (ex.: roteador de outro celular sem dados).
+     * Nao olha so a rede "principal": num Wi-Fi sem internet o Android mantem os dados moveis como
+     * principal e o Wi-Fi fica de lado, mas a Depuracao por Wi-Fi funciona nele do mesmo jeito.
+     */
+    @Suppress("DEPRECATION")
     fun isWifiConnected(context: Context): Boolean = runCatching {
         val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val net = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(net) ?: return false
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        cm.allNetworks.any { net ->
+            cm.getNetworkCapabilities(net)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        }
     }.getOrDefault(false)
 
     fun isDeveloperOptionsEnabled(context: Context): Boolean = runCatching {
@@ -340,8 +348,24 @@ object StandaloneAdbBridge {
         }
     }
 
+    /** Ultimo resultado do PING, para quem pergunta da thread principal. */
+    @Volatile
+    private var lastPingAlive = false
+
+    /** O ultimo toque foi entregue ao motor, mas o Android recusou (ex.: Xiaomi sem "Depuracao USB (seguranca)"). */
+    @Volatile
+    var lastTapRefused = false
+        private set
+
+    /**
+     * PING no motor interno. Na thread principal o Android proibe socket (NetworkOnMainThreadException),
+     * o que fazia o status sair sempre "desligado" no log do servico; ali devolvemos o ultimo PING conhecido.
+     */
     fun isDaemonAlive(context: Context): Boolean {
-        return sendSocketCommand(context, "PING") == "PONG"
+        if (Looper.myLooper() == Looper.getMainLooper()) return lastPingAlive
+        val alive = sendSocketCommand(context, "PING") == "PONG"
+        lastPingAlive = alive
+        return alive
     }
 
     /**
@@ -458,6 +482,7 @@ object StandaloneAdbBridge {
             setPaired(appCtx, true)
 
             val launched = launchShellDaemon(appCtx, mgr)
+            if (launched) grantSetupPermissionsOnce(appCtx, mgr)
             runCatching { mgr.disconnect() }
 
             if (!launched) {
@@ -467,6 +492,8 @@ object StandaloneAdbBridge {
             repeat(14) {
                 if (isDaemonAlive(appCtx)) {
                     stopConnectAutoMonitor()
+                    // Se o app ligou a Depuracao por Wi-Fi sozinho (pos-reinicio), desliga de novo: o motor segue rodando
+                    SetupChecks.restoreWirelessDebuggingIfWeEnabled(appCtx)
                     return ConnectResult(
                         ConnectOutcome.CONNECTED,
                         "Modo Independente ATIVO ✅ (pode desligar o Wi-Fi e rodar no 4G/5G)"
@@ -507,15 +534,85 @@ object StandaloneAdbBridge {
     }
 
     /**
+     * Uma unica vez (enquanto o app ainda nao tem WRITE_SECURE_SETTINGS), aproveita a conexao ADB
+     * ja autorizada pelo motorista para liberar o que dispensa varios passos manuais:
+     *  - WRITE_SECURE_SETTINGS: o app religa a Depuracao por Wi-Fi depois de reiniciar e liga a
+     *    propria Acessibilidade com um toque;
+     *  - ACCESS_RESTRICTED_SETTINGS: tira o bloqueio de "configuracao restrita" (Android 13+);
+     *  - lista de economia de bateria: o Android para de desligar o filtro no meio do turno.
+     * Roda num stream separado e espera o fim, para nao atrasar a subida do motor.
+     */
+    private fun grantSetupPermissionsOnce(context: Context, mgr: AbsAdbConnectionManager) {
+        if (SetupChecks.hasWriteSecureSettings(context)) return
+        val pkg = context.packageName
+        val cmd = "shell:pm grant $pkg android.permission.WRITE_SECURE_SETTINGS >/dev/null 2>&1; " +
+            "appops set $pkg ACCESS_RESTRICTED_SETTINGS allow >/dev/null 2>&1; " +
+            "cmd deviceidle whitelist +$pkg >/dev/null 2>&1; echo FI_GRANTS_DONE"
+        runCatching {
+            val stream = mgr.openStream(cmd)
+            val input = stream.openInputStream()
+            val buf = ByteArray(256)
+            val out = StringBuilder()
+            val deadline = System.currentTimeMillis() + 8000L
+            while (System.currentTimeMillis() < deadline) {
+                val n = input.read(buf)
+                if (n < 0) break
+                out.append(String(buf, 0, n, StandardCharsets.UTF_8))
+                if (out.contains("FI_GRANTS_DONE")) break
+            }
+            runCatching { stream.close() }
+        }
+    }
+
+    /**
+     * Para quem ja tinha o motor ligado antes desta versao: conecta na Depuracao por Wi-Fi (ligada)
+     * so para liberar os atalhos de [grantSetupPermissionsOnce], sem reiniciar o motor.
+     */
+    fun grantSetupPermissions(context: Context): ConnectResult {
+        val appCtx = context.applicationContext
+        if (SetupChecks.hasWriteSecureSettings(appCtx)) {
+            return ConnectResult(ConnectOutcome.CONNECTED, "Atalhos já liberados.")
+        }
+        synchronized(connectLock) {
+            val mgr = getOrCreateManager(appCtx)
+            val connected = try {
+                if (mgr.isConnected) true else mgr.autoConnect(appCtx, 4500L)
+            } catch (_: AdbPairingRequiredException) {
+                setPaired(appCtx, false)
+                return ConnectResult(ConnectOutcome.PAIRING_REQUIRED, "Precisa parear de novo (o Android esqueceu o pareamento).")
+            } catch (_: Throwable) {
+                false
+            }
+            if (!connected) {
+                return ConnectResult(
+                    ConnectOutcome.WIFI_DEBUG_OFF,
+                    "Ligue a Depuração por Wi-Fi (num Wi-Fi) e toque de novo."
+                )
+            }
+            grantSetupPermissionsOnce(appCtx, mgr)
+            runCatching { mgr.disconnect() }
+        }
+        return if (SetupChecks.hasWriteSecureSettings(appCtx)) {
+            ConnectResult(ConnectOutcome.CONNECTED, "Atalhos liberados ✅")
+        } else {
+            ConnectResult(ConnectOutcome.FAILED, "O Android não aceitou liberar os atalhos neste celular.")
+        }
+    }
+
+    /**
      * Dispara `input tap X Y` pelo daemon independente em execucao como `shell` (UID 2000).
      */
     fun tryTap(context: Context, x: Float, y: Float): Boolean {
         val resp = sendSocketCommand(context, "TAP ${x.toInt()} ${y.toInt()}")
+        // "OK" ou "ERR" = o motor respondeu; "ERR" = o Android recusou o input tap
+        lastPingAlive = resp == "OK" || resp == "ERR"
+        lastTapRefused = resp == "ERR"
         return resp == "OK"
     }
 
     fun stopDaemon(context: Context) {
         sendSocketCommand(context, "STOP")
+        lastPingAlive = false
     }
 
     private fun sendSocketCommand(context: Context, command: String): String? {
@@ -539,8 +636,9 @@ object StandaloneAdbBridge {
     }
 
     fun statusLabel(context: Context): String = when {
-        isDaemonAlive(context) -> "ATIVO ✅ (100% independente no 4G/5G)"
-        isPaired(context) -> "Pareado (ligue Depuração Wi-Fi e toque para iniciar)"
-        else -> "Não pareado (toque abaixo p/ ativar sem Shizuku)"
+        isDaemonAlive(context) && lastTapRefused -> "ligado, mas o Android recusou o último toque"
+        isDaemonAlive(context) -> "ligado (funciona no 4G/5G)"
+        isPaired(context) -> "pareado, falta ligar (precisa de Wi-Fi)"
+        else -> "não pareado"
     }
 }

@@ -19,7 +19,25 @@ data class MapZone(
     val centerLat: Double = 0.0,
     val centerLng: Double = 0.0,
     val radiusMeters: Double = 1000.0,
-    val streetNames: List<String> = emptyList()
+    val streetNames: List<String> = emptyList(),
+    // Cor do card quando a corrida vai para esta zona ("" = roxo padrao). So vale com zoneCardColorsEnabled.
+    val cardColorHex: String = ""
+)
+
+/**
+ * Indice de ruas de uma Zona Permitida, gerado a partir dos tiles vetoriais (OpenStreetMap):
+ * - internalStreets: ruas cujo traçado inteiro (na regiao baixada + margem) esta DENTRO da zona,
+ *   longe da divisa e fora de zonas proibidas. So essas podem ser aprovadas apenas pelo nome.
+ * - touchingStreets: todas as ruas que encostam na zona (inclui as de divisa, que entram e saem).
+ * O indice e invalidado automaticamente quando a geometria da zona muda (geometryHash).
+ */
+data class ZoneStreetIndex(
+    val zoneId: Long,
+    val geometryHash: String,
+    val complete: Boolean,
+    val internalStreets: List<String>,
+    val touchingStreets: List<String>,
+    val builtAtMs: Long
 )
 
 data class RideHistoryItem(

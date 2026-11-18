@@ -3,7 +3,18 @@ package com.ruan.uberareafilter
 import com.ruan.uberareafilter.driver.AppCaptureRouter
 import com.ruan.uberareafilter.driver.CaptureMode
 import com.ruan.uberareafilter.driver.UberCaptureModule
+import com.ruan.uberareafilter.engine.AddressParser
 import com.ruan.uberareafilter.engine.AreaEvaluator
+import com.ruan.uberareafilter.engine.AreaVerdictKind
+import com.ruan.uberareafilter.engine.DriverFix
+import com.ruan.uberareafilter.engine.FixPrecision
+import com.ruan.uberareafilter.engine.GeoCandidate
+import com.ruan.uberareafilter.engine.GeoCandidateRules
+import com.ruan.uberareafilter.engine.GeoFix
+import com.ruan.uberareafilter.engine.GeoMath
+import com.ruan.uberareafilter.engine.LocationRules
+import com.ruan.uberareafilter.engine.StreetEvidence
+import com.ruan.uberareafilter.engine.StreetKnowledge
 import com.ruan.uberareafilter.engine.Decision
 import com.ruan.uberareafilter.engine.DualRideCoordinator
 import com.ruan.uberareafilter.engine.FuelCalculator
@@ -15,10 +26,13 @@ import com.ruan.uberareafilter.model.MapZone
 import com.ruan.uberareafilter.model.RideHistoryItem
 import com.ruan.uberareafilter.model.ZoneMode
 import com.ruan.uberareafilter.model.ZoneShape
+import com.ruan.uberareafilter.model.ZoneStreetIndex
+import com.ruan.uberareafilter.overlay.CardPalette
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -810,7 +824,18 @@ class CoreFeaturesTest {
             filterByHourlyRateEnabled = false,
             filterByPickupDistEnabled = false,
             filterByTotalDistEnabled = false,
-            mapZones = listOf(zone)
+            mapZones = listOf(zone),
+            // Sem Geocoder no teste: as ruas precisam estar no indice como INTERNAS para aprovar so pelo nome
+            streetIndex = mapOf(
+                1L to ZoneStreetIndex(
+                    zoneId = 1L,
+                    geometryHash = GeoMath.indexKeyFor(zone, listOf(zone)),
+                    complete = true,
+                    internalStreets = listOf("Rua Santiago", "Rua Jose Mauricio"),
+                    touchingStreets = listOf("Rua Santiago", "Rua Jose Mauricio"),
+                    builtAtMs = 1L
+                )
+            )
         )
         val offerAtExactMin = parsed540.copy(passengerRating = 4.80)
         val evalRes = runBlocking { AreaEvaluator().evaluate(offerAtExactMin, ratingCfg) }
@@ -830,6 +855,363 @@ class CoreFeaturesTest {
             partialTransitionLines, null, 1220, 2712, FilterConfig.DEFAULT_REJECT_HINTS
         )
         assertFalse(parsedTransition.isRideOffer)
+    }
+
+    // ==================================================================
+    // Motor de localizacao com nivel de confianca (demarcacao de area)
+    // ==================================================================
+
+    // Quadrado ~2,2 km x ~2,0 km em Olaria/Penha (so para geometria)
+    private val squareZone = MapZone(
+        id = 10L,
+        name = "Quadrado",
+        mode = ZoneMode.ALLOWED,
+        shape = ZoneShape.POLYGON,
+        points = listOf(-22.84 to -43.27, -22.84 to -43.25, -22.82 to -43.25, -22.82 to -43.27)
+    )
+    private val blockedSquare = MapZone(
+        id = 20L,
+        name = "Comunidade",
+        mode = ZoneMode.BLOCKED,
+        shape = ZoneShape.POLYGON,
+        points = listOf(-22.835 to -43.265, -22.835 to -43.260, -22.830 to -43.260, -22.830 to -43.265)
+    )
+
+    @Test
+    fun addressParserSplitsUberAnd99Formats() {
+        val a = AddressParser.parse("Rua Leopoldina Rego, 212, Olaria, Rio de Janeiro")
+        assertEquals("212", a.number)
+        assertEquals("olaria", a.bairro)
+        assertEquals("leopoldina rego", a.street!!.core)
+
+        val b = AddressParser.parse("CAPS III Fernando Diniz, Rua Leopoldina Rego, 754 - Penha")
+        assertEquals("CAPS III Fernando Diniz", b.poi)
+        assertEquals("754", b.number)
+        assertEquals("penha", b.bairro)
+
+        val c = AddressParser.parse("Rua Montevidéu 782, Penha, Rio de Janeiro")
+        assertEquals("782", c.number)
+        assertEquals("montevideu", c.street!!.core)
+
+        val onlyBairro = AddressParser.parse("Olaria, Rio de Janeiro")
+        assertNull(onlyBairro.street)
+        assertEquals("olaria", onlyBairro.bairro)
+
+        val baixada = AddressParser.parse("Rua Galvão Filho, 42, Belford Roxo, Belford Roxo")
+        assertEquals("belford roxo", baixada.city)
+
+        val est = AddressParser.parse("Est. de Rio do Pau, 220, Penha")
+        assertEquals("estrada", est.street!!.type)
+        assertEquals("rio pau", est.street!!.core)
+    }
+
+    @Test
+    fun streetMatchingIsStrictForApprovalAndLooseForTouching() {
+        val card = AddressParser.streetKeyOf("R. São Luiz Gonzaga")!!
+        val osm = AddressParser.streetKeyOf("Rua São Luís Gonzaga")!!
+        assertTrue(AddressParser.strictMatch(card, osm))
+
+        val shorter = AddressParser.streetKeyOf("Rua Santa Maria")!!
+        val longer = AddressParser.streetKeyOf("Rua Santa Maria Goretti")!!
+        assertFalse("Nome contido NAO pode aprovar", AddressParser.strictMatch(shorter, longer))
+        assertTrue(AddressParser.looseMatch(shorter, longer))
+
+        val rua = AddressParser.streetKeyOf("Rua Uranos")!!
+        val travessa = AddressParser.streetKeyOf("Travessa Uranos")!!
+        assertFalse("Rua X e Travessa X sao vias diferentes", AddressParser.looseMatch(rua, travessa))
+
+        val abbrev = AddressParser.streetKeyOf("Av. Nossa Sra. da Penha")!!
+        val full = AddressParser.streetKeyOf("Avenida Nossa Senhora da Penha")!!
+        assertTrue(AddressParser.strictMatch(abbrev, full))
+    }
+
+    @Test
+    fun geoMathDepthIsSignedDistanceToBorder() {
+        val center = GeoMath.depthMeters(-22.83, -43.26, squareZone)
+        assertTrue("centro ~1 km dentro, foi $center", center in 900.0..1200.0)
+        val justInside = GeoMath.depthMeters(-22.8391, -43.26, squareZone)
+        assertEquals(100.0, justInside, 5.0)
+        val justOutside = GeoMath.depthMeters(-22.8409, -43.26, squareZone)
+        assertEquals(-100.0, justOutside, 5.0)
+        // O antigo "ate 45 m fora conta como dentro" acabou: 20 m fora e NEGATIVO
+        assertTrue(GeoMath.depthMeters(-22.83, -43.2702, squareZone) < 0.0)
+    }
+
+    @Test
+    fun borderStreetWithoutNumberIsNeverAutoApproved() {
+        // Rua que nasce dentro e entra na comunidade (Rua Uranos / Intendente Magalhaes): so o nome NAO basta
+        val parts = AddressParser.parse("Rua Uranos, Olaria, Rio de Janeiro")
+        val verdict = LocationRules.decide(
+            parts,
+            StreetEvidence(StreetKnowledge.TOUCHES, squareZone, "Rua Uranos"),
+            fixes = listOf(GeoFix(-22.83, -43.26, FixPrecision.STREET)), // centro da rua cai dentro...
+            allowedZones = listOf(squareZone),
+            blockedZones = emptyList()
+        )
+        assertEquals(AreaVerdictKind.UNCERTAIN, verdict.kind)
+    }
+
+    @Test
+    fun numberCoordinateOutsideWinsOverStreetName() {
+        // Bug antigo: GPS do numero fora + nome da rua na lista => aprovava. Agora recusa.
+        val parts = AddressParser.parse("Rua Uranos, 1500, Olaria, Rio de Janeiro")
+        val verdict = LocationRules.decide(
+            parts,
+            StreetEvidence(StreetKnowledge.TOUCHES, squareZone, "Rua Uranos"),
+            fixes = listOf(GeoFix(-22.8420, -43.26, FixPrecision.NUMBER)), // ~220 m fora
+            allowedZones = listOf(squareZone),
+            blockedZones = emptyList()
+        )
+        assertEquals(AreaVerdictKind.OUTSIDE, verdict.kind)
+    }
+
+    @Test
+    fun numberCoordinateNearBorderIsUncertainUnlessStreetIsInternal() {
+        val parts = AddressParser.parse("Rua Uranos, 300, Olaria, Rio de Janeiro")
+        val nearBorder = listOf(GeoFix(-22.83985, -43.26, FixPrecision.NUMBER)) // ~17 m dentro
+        val border = LocationRules.decide(
+            parts, StreetEvidence(StreetKnowledge.TOUCHES, squareZone), nearBorder, listOf(squareZone), emptyList()
+        )
+        assertEquals(AreaVerdictKind.UNCERTAIN, border.kind)
+
+        val internal = LocationRules.decide(
+            parts, StreetEvidence(StreetKnowledge.INTERNAL, squareZone), nearBorder, listOf(squareZone), emptyList()
+        )
+        assertEquals(AreaVerdictKind.INSIDE, internal.kind)
+
+        val deep = LocationRules.decide(
+            parts, StreetEvidence(StreetKnowledge.TOUCHES, squareZone),
+            listOf(GeoFix(-22.835, -43.26, FixPrecision.NUMBER)), listOf(squareZone), emptyList()
+        )
+        assertEquals(AreaVerdictKind.INSIDE, deep.kind)
+    }
+
+    @Test
+    fun adjacentGreenZonesCountAsOneAreaAtTheSharedBorder() {
+        val zoneA = squareZone.copy(id = 11L, name = "Olaria", points = listOf(-22.84 to -43.27, -22.84 to -43.26, -22.82 to -43.26, -22.82 to -43.27))
+        val zoneB = squareZone.copy(id = 12L, name = "Penha", points = listOf(-22.84 to -43.26, -22.84 to -43.25, -22.82 to -43.25, -22.82 to -43.26))
+        val fixOnSharedBorder = listOf(GeoFix(-22.83, -43.26005, FixPrecision.NUMBER)) // ~5 m da divisa A|B
+        val verdict = LocationRules.decide(
+            AddressParser.parse("Rua Leopoldina Rego, 900, Olaria"),
+            StreetEvidence(StreetKnowledge.TOUCHES, zoneA),
+            fixOnSharedBorder, listOf(zoneA, zoneB), emptyList()
+        )
+        assertEquals(AreaVerdictKind.INSIDE, verdict.kind)
+        assertTrue(GeoMath.unionDepthAtLeast(-22.83, -43.26005, listOf(zoneA, zoneB), 40.0))
+        assertFalse(GeoMath.unionDepthAtLeast(-22.83, -43.26005, listOf(zoneA), 40.0))
+    }
+
+    @Test
+    fun internalStreetApprovesByNameAndUnknownStreetIsRejected() {
+        val parts = AddressParser.parse("Rua Pirangi, Olaria")
+        val ok = LocationRules.decide(
+            parts, StreetEvidence(StreetKnowledge.INTERNAL, squareZone, "Rua Pirangi"), emptyList(), listOf(squareZone), emptyList()
+        )
+        assertEquals(AreaVerdictKind.INSIDE, ok.kind)
+        assertEquals(squareZone.id, ok.zoneId)
+
+        val outside = LocationRules.decide(
+            AddressParser.parse("Estrada do Gabinal, Rio de Janeiro"),
+            StreetEvidence(StreetKnowledge.NOT_IN_ZONE), emptyList(), listOf(squareZone), emptyList()
+        )
+        assertEquals(AreaVerdictKind.OUTSIDE, outside.kind)
+    }
+
+    @Test
+    fun blockedZoneBeatsEverythingAndBairroOnlyIsNeverApproved() {
+        val inBlocked = LocationRules.decide(
+            AddressParser.parse("Rua X, 10, Olaria"),
+            StreetEvidence(StreetKnowledge.INTERNAL, squareZone),
+            listOf(GeoFix(-22.8325, -43.2625, FixPrecision.NUMBER)),
+            listOf(squareZone), listOf(blockedSquare)
+        )
+        assertEquals(AreaVerdictKind.OUTSIDE, inBlocked.kind)
+        assertTrue(inBlocked.explicitBlocked)
+
+        val bairroOnly = LocationRules.decide(
+            AddressParser.parse("Olaria, Rio de Janeiro"),
+            StreetEvidence(StreetKnowledge.UNKNOWN),
+            listOf(GeoFix(-22.83, -43.26, FixPrecision.AREA)),
+            listOf(squareZone), emptyList()
+        )
+        assertEquals(AreaVerdictKind.UNCERTAIN, bairroOnly.kind)
+    }
+
+    @Test
+    fun geocoderCandidatesMustMatchStreetBairroAndNumber() {
+        val parts = AddressParser.parse("Rua Leopoldina Rego, 212, Olaria, Rio de Janeiro")
+        fun cand(street: String?, number: String?, bairro: String?) = GeoCandidate(
+            lat = -22.83, lng = -43.26, thoroughfare = street, subThoroughfare = number, featureName = number,
+            subLocality = bairro, locality = null, subAdminArea = "Rio de Janeiro", adminArea = "Rio de Janeiro",
+            addressLine = null
+        )
+        assertEquals(FixPrecision.NUMBER, GeoCandidateRules.classify(cand("Rua Leopoldina Rego", "212", "Olaria"), parts))
+        assertEquals(FixPrecision.STREET, GeoCandidateRules.classify(cand("Rua Leopoldina Rego", null, "Olaria"), parts))
+        assertNull("Outra rua (palpite fraco) e descartada", GeoCandidateRules.classify(cand("Rua Uranos", "212", "Olaria"), parts))
+        assertNull("Homonimo em outro bairro e descartado", GeoCandidateRules.classify(cand("Rua Leopoldina Rego", "212", "Campo Grande"), parts))
+        assertTrue(GeoCandidateRules.numberMatches("212", "200-220"))
+        assertFalse(GeoCandidateRules.numberMatches("213", "200-220"))
+    }
+
+    @Test
+    fun internalStreetIsNotApprovedByNameWhenHomonymIsSuspected() {
+        // "Rua Sao Jorge" e interna na zona, mas o card diz Campo Grande e o mapa so acha a rua em outro bairro
+        val parts = AddressParser.parse("Rua São Jorge, Campo Grande, Rio de Janeiro")
+        val homonym = GeoCandidate(
+            lat = -22.83, lng = -43.26, thoroughfare = "Rua São Jorge", subThoroughfare = null, featureName = null,
+            subLocality = "Olaria", locality = null, subAdminArea = "Rio de Janeiro", adminArea = "Rio de Janeiro",
+            addressLine = null
+        )
+        assertNull(GeoCandidateRules.classify(homonym, parts))
+        assertTrue(GeoCandidateRules.isSameStreetInOtherBairro(homonym, parts))
+
+        val verdict = LocationRules.decide(
+            parts, StreetEvidence(StreetKnowledge.INTERNAL, squareZone, "Rua São Jorge"),
+            emptyList(), listOf(squareZone), emptyList(), homonymSuspected = true
+        )
+        assertEquals(AreaVerdictKind.UNCERTAIN, verdict.kind)
+
+        // Sem indicio de homonimo (ex.: Uber diz "Olaria", Google diz "Ramos" para a mesma rua na divisa de bairros)
+        // a rua interna continua aprovada
+        val sameStreetNeighbourBairro = LocationRules.decide(
+            parts, StreetEvidence(StreetKnowledge.INTERNAL, squareZone, "Rua São Jorge"),
+            emptyList(), listOf(squareZone), emptyList(), homonymSuspected = false
+        )
+        assertEquals(AreaVerdictKind.INSIDE, sameStreetNeighbourBairro.kind)
+
+        val bairroResult = homonym.copy(thoroughfare = null, subLocality = "Campo Grande")
+        assertTrue(GeoCandidateRules.isBairroResult(bairroResult, parts))
+
+        // Mesmo caso, mas o mapa confirmou a rua no bairro do card dentro da zona -> aprova
+        val ok = LocationRules.decide(
+            AddressParser.parse("Rua São Jorge, Olaria, Rio de Janeiro"),
+            StreetEvidence(StreetKnowledge.INTERNAL, squareZone, "Rua São Jorge"),
+            listOf(GeoFix(-22.83, -43.26, FixPrecision.STREET)), listOf(squareZone), emptyList()
+        )
+        assertEquals(AreaVerdictKind.INSIDE, ok.kind)
+
+        // Erro de uma letra NAO aprova pelo nome (vira rua de divisa)
+        val lucia = AddressParser.streetKeyOf("Rua Santa Lúcia")!!
+        val luzia = AddressParser.streetKeyOf("Rua Santa Luzia")!!
+        assertFalse(AddressParser.strictMatch(lucia, luzia))
+    }
+
+    @Test
+    fun wordBoundaryFixesMarechalAndBlockedKeywordFalsePositives() {
+        assertFalse(AreaEvaluator.wordRegex("mare").containsMatchIn("praca marechal rondon, marechal hermes"))
+        assertTrue(AreaEvaluator.wordRegex("mare").containsMatchIn("pinheiro, mare, rio de janeiro"))
+        assertFalse(AreaEvaluator.wordRegex("luz").containsMatchIn("rua santa luzia, 10"))
+        assertTrue(AreaEvaluator.wordRegex("luz").containsMatchIn("rua da luz, centro"))
+    }
+
+    @Test
+    fun driverGpsProvesPickupOnlyWhenDeepInsideAndFresh() {
+        val bigCircle = MapZone(
+            id = 30L, name = "Circulo", mode = ZoneMode.ALLOWED, shape = ZoneShape.CIRCLE,
+            centerLat = -22.83, centerLng = -43.26, radiusMeters = 2000.0
+        )
+        val center = DriverFix(-22.83, -43.26, accuracyMeters = 10.0, ageMs = 2_000L)
+        val ev = LocationRules.driverPickupEvidence(center, 0.3, listOf(bigCircle), emptyList())
+        assertEquals(AreaVerdictKind.INSIDE, ev!!.kind)
+
+        // Perto da borda: embarque a 1,2 km pode estar fora -> sem conclusao
+        val nearEdge = DriverFix(-22.8455, -43.26, accuracyMeters = 10.0, ageMs = 2_000L)
+        assertNull(LocationRules.driverPickupEvidence(nearEdge, 1.2, listOf(bigCircle), emptyList()))
+
+        // Posicao velha nao vale
+        assertNull(LocationRules.driverPickupEvidence(center.copy(ageMs = 60_000L), 0.3, listOf(bigCircle), emptyList()))
+    }
+
+    @Test
+    fun evaluateEndToEndUsesStreetIndexAndNeverAcceptsBorderStreetByName() {
+        val zone = MapZone(
+            id = 1L, name = "Olaria", mode = ZoneMode.ALLOWED, shape = ZoneShape.CIRCLE,
+            centerLat = -22.845, centerLng = -43.266, radiusMeters = 1500.0,
+            streetNames = listOf("Rua Pirangi", "Rua Leopoldina Rego", "Rua Uranos")
+        )
+        val index = ZoneStreetIndex(
+            zoneId = 1L, geometryHash = GeoMath.indexKeyFor(zone, listOf(zone)), complete = true,
+            internalStreets = listOf("Rua Pirangi", "Rua Leopoldina Rego"),
+            touchingStreets = listOf("Rua Pirangi", "Rua Leopoldina Rego", "Rua Uranos"),
+            builtAtMs = 1L
+        )
+        val cfg = FilterConfig(
+            filterByHourlyRateEnabled = false, filterByPickupDistEnabled = false,
+            mapZones = listOf(zone), streetIndex = mapOf(1L to index)
+        )
+        fun offer(pickup: String, dropoff: String) = AppCaptureRouter.parseOrderedLines(
+            listOf("Moto", "Exclusivo", "R$ 14,09", "Est. de R$1,40/km", "★ 4,94 (211)",
+                "6 min (2.5 km)", pickup, "20 minutos (8.0 km)", dropoff, "Aceitar").map { it to null },
+            null, 1220, 2712, FilterConfig(nineNineModuleEnabled = false, uberModuleEnabled = true)
+        )!!
+
+        val inside = runBlocking { AreaEvaluator().evaluate(offer("Rua Pirangi, Olaria", "Rua Leopoldina Rego, Olaria"), cfg) }
+        assertEquals(Decision.INSIDE_AREA, inside.decision)
+
+        val border = runBlocking { AreaEvaluator().evaluate(offer("Rua Pirangi, Olaria", "Rua Uranos, Olaria"), cfg) }
+        assertEquals(Decision.UNCERTAIN, border.decision)
+
+        val outside = runBlocking { AreaEvaluator().evaluate(offer("Rua Pirangi, Olaria", "Estrada do Gabinal, Freguesia"), cfg) }
+        assertEquals(Decision.OUTSIDE_AREA, outside.decision)
+
+        // Zona redesenhada (hash diferente) -> indice ignorado -> nada e aprovado so pelo nome
+        val moved = zone.copy(centerLat = -22.846)
+        val staleCfg = cfg.copy(mapZones = listOf(moved))
+        val stale = runBlocking { AreaEvaluator().evaluate(offer("Rua Pirangi, Olaria", "Rua Leopoldina Rego, Olaria"), staleCfg) }
+        assertEquals(Decision.UNCERTAIN, stale.decision)
+    }
+
+    // ==================================================================
+    // Paleta do card flutuante (legibilidade e conforto a noite)
+    // ==================================================================
+
+    @Test
+    fun cardPaletteKeepsTextReadableForAnyChosenColorDayAndNight() {
+        val presets = listOf(
+            "#0A2E1D", "#1B5E20", "#330A0A", "#B71C1C", "#271252", "#6A1B9A", "#3B2806", "#E65100",
+            "#0D2A4A", "#1565C0", "#880E4F", "#006064", "#263238", "#111111", "#FFEB3B", "#FFFFFF"
+        ).map { CardPalette.parseHex(it) } + listOf<Int?>(null)
+
+        for (user in presets) {
+            for (decision in Decision.values()) {
+                for (night in listOf(true, false)) {
+                    val c = CardPalette.build(user, decision, night)
+                    val top = CardPalette.opaque(c.bgTop)
+                    val bottom = CardPalette.opaque(c.bgBottom)
+                    for (bg in listOf(top, bottom)) {
+                        val tag = "${user?.let { CardPalette.toHex(it) }} $decision night=$night"
+                        assertTrue("texto principal $tag", CardPalette.contrast(c.textPrimary, bg) >= 7.0)
+                        assertTrue("texto terciario $tag", CardPalette.contrast(c.textTertiary, bg) >= 4.5)
+                        assertTrue("acento $tag", CardPalette.contrast(c.accent, bg) >= 4.5)
+                        assertTrue("falha $tag", CardPalette.contrast(c.bad, bg) >= 4.5)
+                    }
+                    // Fundo nunca claro: luminancia baixa = nao ofusca a noite
+                    assertTrue(CardPalette.relativeLuminance(top) < 0.04)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun cardPaletteIsDarkerAtNightAndKeepsNeutralChoicesSemantic() {
+        val green = CardPalette.parseHex("#1B5E20")
+        val day = CardPalette.build(green, Decision.INSIDE_AREA, night = false)
+        val night = CardPalette.build(green, Decision.INSIDE_AREA, night = true)
+        assertTrue(
+            CardPalette.relativeLuminance(CardPalette.opaque(night.bgTop)) <
+                CardPalette.relativeLuminance(CardPalette.opaque(day.bgTop))
+        )
+        // Texto noturno nao e branco puro (reduz o "halo")
+        assertTrue(night.textPrimary != 0xFFFFFFFF.toInt())
+
+        // "Preto" escolhido para Recusa: fundo neutro, mas o acento continua vermelho (matiz da decisao)
+        val black = CardPalette.build(CardPalette.parseHex("#111111"), Decision.OUTSIDE_AREA, night = true)
+        val hue = CardPalette.rgbToHsl(black.accent)[0]
+        assertTrue("acento deveria ser vermelho, matiz=$hue", hue < 20f || hue > 340f)
+
+        // Laranja vibrante: antes texto branco tinha 3,8:1; agora o fundo vira um marrom-escuro legivel
+        val orange = CardPalette.build(CardPalette.parseHex("#E65100"), Decision.INSIDE_AREA, night = false)
+        assertTrue(CardPalette.contrast(orange.textPrimary, CardPalette.opaque(orange.bgTop)) > 12.0)
     }
 
     private fun dualConfigWithBoth() = FilterConfig(nineNineModuleEnabled = true, uberModuleEnabled = true)

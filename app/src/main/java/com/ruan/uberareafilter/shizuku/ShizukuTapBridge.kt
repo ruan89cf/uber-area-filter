@@ -136,12 +136,36 @@ object ShizukuTapBridge {
         }
     }
 
-    fun statusLabel(context: Context): String = when {
-        !isInstalled(context) -> "Não instalado"
-        !isBinderAlive() -> "Inativo (abra o app Shizuku e toque em Iniciar)"
-        !hasPermission() -> "Sem permissão (toque no botão p/ autorizar)"
-        isServiceConnected() -> "ATIVO ✅ (toque direto na Uber liberado)"
-        else -> "Autorizado (conectando serviço...)"
+    enum class State {
+        NOT_INSTALLED,  // app Shizuku nao instalado
+        NOT_RUNNING,    // instalado, mas o servico do Shizuku nao foi iniciado
+        NO_PERMISSION,  // rodando, falta autorizar o Filtro
+        DENIED,         // o motorista negou ("nao perguntar de novo"): so liberando no app Shizuku
+        CONNECTING,     // autorizado, servico de toque ainda subindo
+        ACTIVE          // pronto para tocar na Uber
+    }
+
+    /** Negado de vez: requestPermission() nao mostra mais o pedido. */
+    fun isPermissionDenied(): Boolean {
+        if (!isBinderAlive()) return false
+        return runCatching { Shizuku.shouldShowRequestPermissionRationale() }.getOrDefault(false)
+    }
+
+    fun state(context: Context): State = when {
+        !isInstalled(context) -> State.NOT_INSTALLED
+        !isBinderAlive() -> State.NOT_RUNNING
+        !hasPermission() -> if (isPermissionDenied()) State.DENIED else State.NO_PERMISSION
+        isServiceConnected() -> State.ACTIVE
+        else -> State.CONNECTING
+    }
+
+    fun statusLabel(context: Context): String = when (state(context)) {
+        State.NOT_INSTALLED -> "não instalado"
+        State.NOT_RUNNING -> "parado (abra o Shizuku e toque em Iniciar)"
+        State.NO_PERMISSION -> "falta autorizar o Filtro"
+        State.DENIED -> "negado (libere o Filtro dentro do app Shizuku)"
+        State.CONNECTING -> "autorizado, conectando..."
+        State.ACTIVE -> "ligado"
     }
 
     fun release(context: Context) {

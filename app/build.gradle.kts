@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -11,18 +13,25 @@ android {
         applicationId = "com.ruan.uberareafilter"
         minSdk = 30
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 16
+        versionName = "2.5"
     }
 
     signingConfigs {
         create("release") {
-            val ksFile = file("release-key.jks")
-            if (ksFile.exists()) {
+            // Senhas fora do codigo: ficam em keystore.properties (na raiz do projeto, ignorado pelo git)
+            val ksProps = Properties()
+            val ksPropsFile = rootProject.file("keystore.properties")
+            if (ksPropsFile.exists()) {
+                ksPropsFile.inputStream().use { stream -> ksProps.load(stream) }
+            }
+            val ksFile = file(ksProps.getProperty("storeFile", "release-key.jks"))
+            val storePass = ksProps.getProperty("storePassword") ?: System.getenv("FILTRO_STORE_PASSWORD")
+            if (ksFile.exists() && storePass != null) {
                 storeFile = ksFile
-                storePassword = "moto99password"
-                keyAlias = "moto99key"
-                keyPassword = "moto99password"
+                storePassword = storePass
+                keyAlias = ksProps.getProperty("keyAlias") ?: System.getenv("FILTRO_KEY_ALIAS")
+                keyPassword = ksProps.getProperty("keyPassword") ?: System.getenv("FILTRO_KEY_PASSWORD")
             }
         }
     }

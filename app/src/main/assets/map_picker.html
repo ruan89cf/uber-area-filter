@@ -7,488 +7,506 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            font-family: sans-serif;
-            overflow: hidden;
-            background: #121212;
+        :root {
+            --panel: rgba(18, 20, 24, 0.94);
+            --line: #3a3f47;
+            --text: #f1f1f1;
+            --muted: #b7bcc4;
+            --ok: #2e7d32;
+            --ok-line: #69f0ae;
+            --bad: #b71c1c;
+            --bad-line: #ff8a80;
+            --blue: #1565c0;
+            --blue-line: #82b1ff;
         }
-        #map {
-            width: 100%;
-            height: 100%;
-        }
-        .top-panel {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            right: 10px;
-            z-index: 1000;
-            background: rgba(20, 20, 20, 0.92);
-            color: #fff;
-            padding: 10px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.45);
-            display: flex;
-            flex-direction: column;
-            gap: 7px;
-        }
-        .mode-row {
-            display: flex;
-            gap: 6px;
-        }
-        .mode-btn {
-            flex: 1;
-            border: 2px solid #444;
-            border-radius: 8px;
-            padding: 8px 6px;
-            font-size: 12px;
-            font-weight: bold;
-            background: #2b2b2b;
-            color: #ccc;
-            cursor: pointer;
-        }
-        .mode-btn.active-allowed {
-            background: #1b5e20;
-            border-color: #69f0ae;
-            color: #fff;
-        }
-        .mode-btn.active-blocked {
-            background: #b71c1c;
-            border-color: #ff8a80;
-            color: #fff;
-        }
-        .mode-btn.active-shape {
-            background: #0d47a1;
-            border-color: #82b1ff;
-            color: #fff;
-        }
-        #statusBanner {
-            font-size: 12px;
-            color: #e0e0e0;
-            line-height: 1.3;
-        }
-        #circleSliderRow {
-            display: none;
-            align-items: center;
-            gap: 8px;
-            background: #1e293b;
-            padding: 6px 10px;
-            border-radius: 8px;
-        }
-        #circleSliderRow input[type=range] {
-            flex: 1;
-        }
-        .radius-btn {
-            background: #334155;
-            color: #fff;
-            border: none;
-            border-radius: 6px;
-            padding: 5px 9px;
-            font-weight: bold;
-            font-size: 13px;
-        }
-        .bottom-controls {
-            position: absolute;
-            bottom: 14px;
-            left: 10px;
-            right: 10px;
-            z-index: 1000;
-            display: flex;
-            flex-direction: column;
-            gap: 7px;
-        }
-        .row {
-            display: flex;
-            gap: 7px;
-        }
-        .ctrl-btn {
-            flex: 1;
-            border: none;
-            border-radius: 10px;
-            padding: 11px 8px;
-            font-size: 13px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.35);
-        }
-        .btn-secondary {
-            background: #ffffff;
-            color: #222;
-        }
-        .btn-add-zone {
-            background: #1565c0;
-            color: #fff;
-        }
-        .btn-danger {
-            background: #ffebee;
-            color: #c62828;
-        }
-        .btn-primary {
-            background: #1b5e20;
-            color: #ffffff;
-            font-size: 15px;
-            padding: 14px;
-            border: 1px solid #69f0ae;
-        }
-        .vertex-icon {
-            background: #1b5e20;
-            color: #fff;
-            border: 2px solid #fff;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            text-align: center;
-            line-height: 20px;
-            font-size: 12px;
-            font-weight: bold;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-        }
-        .vertex-icon-blocked {
-            background: #b71c1c;
-            color: #fff;
-            border: 2px solid #fff;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            text-align: center;
-            line-height: 20px;
-            font-size: 12px;
-            font-weight: bold;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-        }
-        .zone-label {
-            background: rgba(0,0,0,0.75);
-            color: #fff;
-            padding: 2px 6px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: bold;
-            white-space: nowrap;
-        }
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+            font-family: sans-serif; background: #121212; color: var(--text); }
+        #map { width: 100%; height: 100%; }
+        button { font-family: inherit; cursor: pointer; }
+
+        .top-panel { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1000;
+            background: var(--panel); border-radius: 14px; padding: 8px; box-shadow: 0 3px 10px rgba(0,0,0,.45);
+            display: flex; flex-direction: column; gap: 6px; }
+        .row { display: flex; gap: 6px; align-items: center; }
+        .seg { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 2px solid var(--line); border-radius: 9px; padding: 9px 4px; font-size: 13px;
+            font-weight: bold; background: #262a30; color: var(--muted); }
+        .seg.on-ok { background: var(--ok); border-color: var(--ok-line); color: #fff; }
+        .seg.on-bad { background: var(--bad); border-color: var(--bad-line); color: #fff; }
+        .seg.on-blue { background: var(--blue); border-color: var(--blue-line); color: #fff; }
+
+        .search { flex: 1; min-width: 0; background: #262a30; color: #fff; border: 1px solid var(--line);
+            border-radius: 9px; padding: 9px 10px; font-size: 14px; }
+        .ic { width: 18px; height: 18px; fill: currentColor; vertical-align: -4px; flex: none; }
+        .icon-btn .ic { width: 22px; height: 22px; vertical-align: -5px; }
+        .ic.ok { fill: var(--ok-line); } .ic.bad { fill: var(--bad-line); }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        button { transition: background-color .18s ease, border-color .18s ease, transform .12s ease; }
+        button:active { transform: scale(0.97); }
+        .icon-btn { background: #262a30; color: #fff; border: 1px solid var(--line); border-radius: 9px;
+            padding: 8px 11px; font-size: 16px; }
+
+        #radiusRow { display: none; background: #1e293b; padding: 6px 8px; border-radius: 9px; }
+        #radiusRow input[type=range] { flex: 1; }
+        .radius-btn { background: #334155; color: #fff; border: none; border-radius: 7px; padding: 7px 9px;
+            font-weight: bold; font-size: 13px; }
+        #radiusTxt { min-width: 54px; text-align: right; font-weight: bold; color: #82b1ff; }
+
+        #status { font-size: 12.5px; color: #e6e6e6; line-height: 1.35; }
+
+        #zoneList { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+        #zoneList:empty { display: none; }
+        .chip { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; background: #262a30;
+            border: 1px solid var(--line); color: #eee; border-radius: 16px; padding: 6px 10px; font-size: 12.5px;
+            font-weight: bold; white-space: nowrap; }
+        .chip.sel { border-color: #ffeb3b; background: #3a3618; }
+        .dot { width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(255,255,255,.6); }
+
+        .bottom { position: absolute; bottom: 12px; left: 8px; right: 8px; z-index: 1000;
+            display: flex; flex-direction: column; gap: 7px; }
+        .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: none; border-radius: 11px; padding: 12px 8px; font-size: 14px; font-weight: bold;
+            box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+        .btn-light { background: #fff; color: #222; }
+        .btn-blue { background: var(--blue); color: #fff; }
+        .btn-save { background: #1b5e20; color: #fff; font-size: 15px; padding: 14px; border: 1px solid var(--ok-line); }
+        .btn-danger { background: #ffebee; color: #c62828; }
+        .btn-danger.armed { background: #c62828; color: #fff; }
+
+        /* Painel da zona selecionada (editor) */
+        #editor { display: none; background: var(--panel); border-radius: 14px; padding: 10px;
+            box-shadow: 0 3px 10px rgba(0,0,0,.45); flex-direction: column; gap: 8px; }
+        #editor .title { font-size: 12px; color: var(--muted); }
+        #zoneName { flex: 1; min-width: 0; background: #262a30; color: #fff; border: 1px solid var(--line);
+            border-radius: 9px; padding: 9px 10px; font-size: 15px; font-weight: bold; }
+        #colorRow { display: none; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; padding: 0; }
+        .swatch.sel { border-color: #fff; box-shadow: 0 0 0 2px #000; }
+        .swatch.none { background: #262a30; color: #ccc; font-size: 15px; border-color: var(--line); }
+        .hint { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+
+        .vtx { background: #1b5e20; color: #fff; border: 2px solid #fff; border-radius: 50%; width: 26px; height: 26px;
+            text-align: center; line-height: 22px; font-size: 12px; font-weight: bold; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+        .vtx.bad { background: #b71c1c; }
+        .vtx.edit { background: #f9a825; color: #111; }
+        .mid { background: rgba(255,255,255,.85); color: #111; border: 1px solid #333; border-radius: 50%;
+            width: 20px; height: 20px; text-align: center; line-height: 18px; font-size: 14px; font-weight: bold; }
+        .me { background: #1e88e5; border: 3px solid #fff; border-radius: 50%; width: 16px; height: 16px;
+            box-shadow: 0 0 0 6px rgba(30,136,229,.25); }
+        .zlabel { background: rgba(0,0,0,.72); color: #fff; padding: 2px 6px; border-radius: 6px; font-size: 11px;
+            font-weight: bold; white-space: nowrap; border: none; box-shadow: none; }
+        .zlabel:before { display: none; }
+        #toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 150px; z-index: 1100;
+            background: rgba(0,0,0,.85); color: #fff; padding: 9px 14px; border-radius: 18px; font-size: 13px;
+            display: none; max-width: 86%; text-align: center; }
     </style>
 </head>
 <body>
-    <div class="top-panel">
-        <div class="mode-row">
-            <button id="btnModeAllowed" class="mode-btn active-allowed" onclick="setZoneMode('ALLOWED')">🟢 Área Permitida</button>
-            <button id="btnModeBlocked" class="mode-btn" onclick="setZoneMode('BLOCKED')">🔴 Área Proibida (Não Ir)</button>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <symbol id="i-search" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></symbol>
+        <symbol id="i-myloc" viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></symbol>
+        <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></symbol>
+        <symbol id="i-poly" viewBox="0 0 24 24"><path d="M12 2 2 9.27l3.82 11.73h12.36L22 9.27 12 2zm4.72 17H7.28L4.36 10.03 12 4.47l7.64 5.56L16.72 19z"/></symbol>
+        <symbol id="i-circle" viewBox="0 0 24 24"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
+        <symbol id="i-undo" viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></symbol>
+        <symbol id="i-done" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></symbol>
+        <symbol id="i-save" viewBox="0 0 24 24"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></symbol>
+        <symbol id="i-sync" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></symbol>
+    </svg>
+        <div class="top-panel">
+        <div class="row">
+            <input id="searchBox" class="search" type="search" placeholder="Buscar rua, bairro..." enterkeyhint="search"
+                   onkeydown="if(event.key==='Enter'){doSearch();}" />
+            <button class="icon-btn" onclick="doSearch()" aria-label="Buscar"><svg class="ic"><use href="#i-search"/></svg></button>
+            <button class="icon-btn" onclick="goToMe()" aria-label="Minha localização"><svg class="ic"><use href="#i-myloc"/></svg></button>
         </div>
-        <div class="mode-row">
-            <button id="btnShapePoly" class="mode-btn active-shape" onclick="setZoneShape('POLYGON')">📐 Polígono (Pontos)</button>
-            <button id="btnShapeCircle" class="mode-btn" onclick="setZoneShape('CIRCLE')">⭕ Círculo (Expansível)</button>
+        <div class="row">
+            <button id="mAllowed" class="seg on-ok" onclick="setMode('ALLOWED')"><svg class="ic ok"><use href="#i-dot"/></svg> Liberada</button>
+            <button id="mBlocked" class="seg" onclick="setMode('BLOCKED')"><svg class="ic bad"><use href="#i-dot"/></svg> Proibida</button>
+            <button id="sPoly" class="seg on-blue" onclick="setShape('POLYGON')"><svg class="ic"><use href="#i-poly"/></svg> Pontos</button>
+            <button id="sCircle" class="seg" onclick="setShape('CIRCLE')"><svg class="ic"><use href="#i-circle"/></svg> Círculo</button>
         </div>
-        <div id="circleSliderRow">
-            <button class="radius-btn" onclick="stepRadius(-200)">-200m</button>
-            <input type="range" id="radiusSlider" min="200" max="10000" step="100" value="1200" oninput="onRadiusChange(this.value)" />
-            <button class="radius-btn" onclick="stepRadius(200)">+200m</button>
-            <span id="radiusValueTxt" style="min-width:58px;text-align:right;font-weight:bold;color:#82b1ff;">1,2 km</span>
+        <div id="radiusRow" class="row">
+            <button class="radius-btn" onclick="stepRadius(-200)">−</button>
+            <input type="range" id="radiusSlider" min="150" max="15000" step="50" value="1200" oninput="onRadius(Number(this.value))" />
+            <button class="radius-btn" onclick="stepRadius(200)">+</button>
+            <span id="radiusTxt">1,2 km</span>
         </div>
-        <div id="statusBanner">
-            Toque no mapa para desenhar. Você pode criar vários Polígonos e Círculos (Permitidos 🟢 ou Proibidos 🔴).
-        </div>
+        <div id="zoneList"></div>
+        <div id="status"></div>
     </div>
 
     <div id="map"></div>
+    <div id="toast"></div>
 
-    <div class="bottom-controls">
-        <div class="row">
-            <button class="ctrl-btn btn-secondary" onclick="undoCurrent()">↩ Desfazer</button>
-            <button class="ctrl-btn btn-add-zone" onclick="commitCurrentAndStartNew()">➕ + Outra Área</button>
-            <button class="ctrl-btn btn-danger" onclick="deleteSelectedOrClear()">🗑 Excluir</button>
+    <div class="bottom">
+        <div id="editor">
+            <div class="title" id="editorTitle">Zona selecionada</div>
+            <div class="row">
+                <input id="zoneName" maxlength="32" oninput="renameSelected(this.value)" />
+            </div>
+            <div class="row">
+                <button id="eAllowed" class="seg" onclick="setSelectedMode('ALLOWED')"><svg class="ic ok"><use href="#i-dot"/></svg> Liberada</button>
+                <button id="eBlocked" class="seg" onclick="setSelectedMode('BLOCKED')"><svg class="ic bad"><use href="#i-dot"/></svg> Proibida</button>
+            </div>
+            <div id="colorRow"></div>
+            <div class="hint" id="editorHint"></div>
+            <div class="row">
+                <button id="btnDelZone" class="btn btn-danger" onclick="deleteSelected()"><svg class="ic"><use href="#i-trash"/></svg> Apagar zona</button>
+                <button class="btn btn-light" onclick="deselect()"><svg class="ic"><use href="#i-check"/></svg> Pronto</button>
+            </div>
         </div>
-        <button class="ctrl-btn btn-primary" id="btnConfirmAll" onclick="confirmAllZones()">✅ Salvar Todas as Áreas e Extrair Ruas</button>
+        <div id="drawControls" class="row">
+            <button class="btn btn-light" onclick="undoCurrent()"><svg class="ic"><use href="#i-undo"/></svg> Desfazer</button>
+            <button class="btn btn-blue" onclick="finishCurrent()"><svg class="ic"><use href="#i-done"/></svg> Concluir área</button>
+            <button id="btnClear" class="btn btn-danger" onclick="clearAllArmed()"><svg class="ic"><use href="#i-trash"/></svg> Limpar</button>
+        </div>
+        <button class="btn btn-save" id="btnSave" onclick="confirmAllZones()"><svg class="ic"><use href="#i-save"/></svg> Salvar a área</button>
     </div>
 
+    <script>function ICON(n, c) { return '<svg class="ic' + (c ? ' ' + c : '') + '"><use href="#i-' + n + '"/></svg>'; }</script>
     <script>
-        var defaultLat = -22.8425;
-        var defaultLng = -43.2785;
-
-        var map = L.map('map', { zoomControl: false }).setView([defaultLat, defaultLng], 13);
+        var map = L.map('map', { zoomControl: false }).setView([-22.8425, -43.2785], 13);
         L.control.zoom({ position: 'bottomright' }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
-
-        // Lista de zonas salvas: { id, name, mode: 'ALLOWED'|'BLOCKED', shape: 'POLYGON'|'CIRCLE', points: [[lat,lng]], centerLat, centerLng, radiusMeters }
-        var savedZones = [];
-        var selectedSavedIndex = -1;
-
-        // Zona sendo desenhada atualmente
-        var currentMode = 'ALLOWED';
-        var currentShape = 'POLYGON';
-        var currentPoints = [];
-        var currentCenter = null;
-        var currentRadius = 1200;
-
+        var savedZones = [];       // { id, name, mode, shape, points, centerLat, centerLng, radiusMeters, cardColorHex, streetNames }
+        var selected = -1;         // indice da zona em edicao
+        var mode = 'ALLOWED', shape = 'POLYGON';
+        var curPoints = [], curCenter = null, radius = 1200;
+        var colorsEnabled = false;
+        var palette = [{ name: 'Roxo', hex: '#7C3AED' }];
+        var defaultZoneColor = '#7C3AED';
+        var me = null, meMarker = null;
         var savedGroup = L.layerGroup().addTo(map);
         var activeGroup = L.layerGroup().addTo(map);
+        var clearArmedUntil = 0, delArmedUntil = 0;
 
-        function formatRadius(m) {
-            if (m >= 1000) {
-                return (m / 1000).toFixed(1).replace('.', ',') + ' km';
+        function $(id) { return document.getElementById(id); }
+        function fmtRadius(m) { return m >= 1000 ? (m / 1000).toFixed(1).replace('.', ',') + ' km' : Math.round(m) + ' m'; }
+        function toast(msg) {
+            var t = $('toast'); t.innerText = msg; t.style.display = 'block';
+            clearTimeout(toast._h); toast._h = setTimeout(function () { t.style.display = 'none'; }, 2600);
+        }
+        function isDrawing() { return (shape === 'POLYGON' && curPoints.length > 0) || (shape === 'CIRCLE' && curCenter); }
+        function allowedIndexes() {
+            var r = []; savedZones.forEach(function (z, i) { if (z.mode === 'ALLOWED') r.push(i); }); return r;
+        }
+        // A 1a zona permitida usa o verde normal; as adicionais podem ter cor propria no card
+        function isAdditionalAllowed(idx) { var a = allowedIndexes(); return a.indexOf(idx) > 0; }
+        function zoneFill(z, idx) {
+            if (z.mode !== 'ALLOWED') return '#f44336';
+            if (colorsEnabled && z.cardColorHex && isAdditionalAllowed(idx)) return z.cardColorHex;
+            return '#4caf50';
+        }
+        function nextName(m) {
+            var n = savedZones.filter(function (z) { return z.mode === m; }).length + 1;
+            return (m === 'ALLOWED' ? 'Zona ' : 'Proibida ') + n;
+        }
+
+        // ---------- Modo / forma do desenho ----------
+        function setMode(m) {
+            mode = m;
+            $('mAllowed').className = 'seg' + (m === 'ALLOWED' ? ' on-ok' : '');
+            $('mBlocked').className = 'seg' + (m === 'BLOCKED' ? ' on-bad' : '');
+            redraw();
+        }
+        function setShape(s) {
+            if (s !== shape && isDrawing()) commitCurrent();
+            shape = s;
+            $('sPoly').className = 'seg' + (s === 'POLYGON' ? ' on-blue' : '');
+            $('sCircle').className = 'seg' + (s === 'CIRCLE' ? ' on-blue' : '');
+            updateRadiusRow();
+            redraw();
+        }
+        function updateRadiusRow() {
+            var sel = savedZones[selected];
+            var show = (selected >= 0 && sel && sel.shape === 'CIRCLE') || (selected < 0 && shape === 'CIRCLE');
+            $('radiusRow').style.display = show ? 'flex' : 'none';
+            var r = (selected >= 0 && sel && sel.shape === 'CIRCLE') ? (sel.radiusMeters || 1000) : radius;
+            $('radiusSlider').value = r; $('radiusTxt').innerText = fmtRadius(r);
+        }
+        function onRadius(v) {
+            var sel = savedZones[selected];
+            if (selected >= 0 && sel && sel.shape === 'CIRCLE') sel.radiusMeters = v; else radius = v;
+            $('radiusTxt').innerText = fmtRadius(v);
+            redraw();
+        }
+        function stepRadius(d) {
+            var v = Math.max(150, Math.min(15000, Number($('radiusSlider').value) + d));
+            $('radiusSlider').value = v; onRadius(v);
+        }
+
+        // ---------- Concluir / desfazer ----------
+        function commitCurrent() {
+            var z = null;
+            if (shape === 'POLYGON' && curPoints.length >= 3) {
+                z = { id: Date.now(), name: nextName(mode), mode: mode, shape: 'POLYGON', points: curPoints.slice(),
+                      centerLat: 0, centerLng: 0, radiusMeters: 0 };
+                curPoints = [];
+            } else if (shape === 'CIRCLE' && curCenter) {
+                z = { id: Date.now(), name: nextName(mode), mode: mode, shape: 'CIRCLE', points: [],
+                      centerLat: curCenter[0], centerLng: curCenter[1], radiusMeters: radius };
+                curCenter = null;
             }
-            return Math.round(m) + ' m';
+            if (!z) return -1;
+            z.cardColorHex = '';
+            savedZones.push(z);
+            var idx = savedZones.length - 1;
+            if (z.mode === 'ALLOWED' && colorsEnabled && isAdditionalAllowed(idx)) z.cardColorHex = defaultZoneColor;
+            return idx;
         }
-
-        function setZoneMode(mode) {
-            currentMode = mode;
-            document.getElementById('btnModeAllowed').className = 'mode-btn' + (mode === 'ALLOWED' ? ' active-allowed' : '');
-            document.getElementById('btnModeBlocked').className = 'mode-btn' + (mode === 'BLOCKED' ? ' active-blocked' : '');
-            redrawAll();
-        }
-
-        function setZoneShape(shape) {
-            // Se tinha algo valido sendo desenhado na outra forma, guarda automaticamente!
-            if (currentShape !== shape) {
-                autoCommitCurrentIfValid();
-            }
-            currentShape = shape;
-            document.getElementById('btnShapePoly').className = 'mode-btn' + (shape === 'POLYGON' ? ' active-shape' : '');
-            document.getElementById('btnShapeCircle').className = 'mode-btn' + (shape === 'CIRCLE' ? ' active-shape' : '');
-            document.getElementById('circleSliderRow').style.display = (shape === 'CIRCLE') ? 'flex' : 'none';
-            redrawAll();
-        }
-
-        function onRadiusChange(val) {
-            currentRadius = Number(val);
-            document.getElementById('radiusValueTxt').innerText = formatRadius(currentRadius);
-            if (selectedSavedIndex >= 0 && savedZones[selectedSavedIndex] && savedZones[selectedSavedIndex].shape === 'CIRCLE') {
-                savedZones[selectedSavedIndex].radiusMeters = currentRadius;
-            }
-            redrawAll();
-        }
-
-        function stepRadius(delta) {
-            var next = Math.max(150, Math.min(15000, currentRadius + delta));
-            var slider = document.getElementById('radiusSlider');
-            slider.value = next;
-            onRadiusChange(next);
-        }
-
-        function autoCommitCurrentIfValid() {
-            if (currentShape === 'POLYGON' && currentPoints.length >= 3) {
-                var num = savedZones.length + 1;
-                savedZones.push({
-                    id: Date.now() + num,
-                    name: (currentMode === 'ALLOWED' ? 'Permitida ' : 'Proibida ') + num,
-                    mode: currentMode,
-                    shape: 'POLYGON',
-                    points: currentPoints.slice(),
-                    centerLat: 0,
-                    centerLng: 0,
-                    radiusMeters: 0
-                });
-                currentPoints = [];
-                return true;
-            } else if (currentShape === 'CIRCLE' && currentCenter) {
-                var numC = savedZones.length + 1;
-                savedZones.push({
-                    id: Date.now() + numC,
-                    name: (currentMode === 'ALLOWED' ? 'Círculo ' : 'Proibido ') + numC,
-                    mode: currentMode,
-                    shape: 'CIRCLE',
-                    points: [],
-                    centerLat: currentCenter[0],
-                    centerLng: currentCenter[1],
-                    radiusMeters: currentRadius
-                });
-                currentCenter = null;
-                return true;
-            }
-            return false;
-        }
-
-        function commitCurrentAndStartNew() {
-            var added = autoCommitCurrentIfValid();
-            selectedSavedIndex = -1;
-            redrawAll();
-            if (!added) {
-                var el = document.getElementById('statusBanner');
-                el.innerText = 'Toque no mapa para iniciar a nova área (' + (currentShape === 'CIRCLE' ? 'Círculo' : 'Polígono') + ').';
-            }
-        }
-
-        function redrawAll() {
-            savedGroup.clearLayers();
-            activeGroup.clearLayers();
-
-            // 1. Desenha zonas ja salvas na lista
-            savedZones.forEach(function(z, idx) {
-                var isAllowed = z.mode === 'ALLOWED';
-                var isSelected = (idx === selectedSavedIndex);
-                var strokeColor = isSelected ? '#ffeb3b' : (isAllowed ? '#00e676' : '#ff1744');
-                var fillColor = isAllowed ? '#4caf50' : '#f44336';
-                var weight = isSelected ? 4 : 3;
-
-                if (z.shape === 'CIRCLE' && z.centerLat && z.centerLng) {
-                    var circle = L.circle([z.centerLat, z.centerLng], {
-                        radius: z.radiusMeters || 1000,
-                        color: strokeColor,
-                        weight: weight,
-                        fillColor: fillColor,
-                        fillOpacity: isSelected ? 0.45 : 0.28
-                    }).addTo(savedGroup);
-
-                    circle.on('click', function(ev) {
-                        L.DomEvent.stopPropagation(ev);
-                        selectedSavedIndex = idx;
-                        if (z.shape === 'CIRCLE') {
-                            currentRadius = z.radiusMeters || 1000;
-                            document.getElementById('radiusSlider').value = currentRadius;
-                            document.getElementById('radiusValueTxt').innerText = formatRadius(currentRadius);
-                            document.getElementById('circleSliderRow').style.display = 'flex';
-                        }
-                        redrawAll();
-                    });
-                } else if (z.points && z.points.length >= 3) {
-                    var poly = L.polygon(z.points, {
-                        color: strokeColor,
-                        weight: weight,
-                        fillColor: fillColor,
-                        fillOpacity: isSelected ? 0.45 : 0.28
-                    }).addTo(savedGroup);
-
-                    poly.on('click', function(ev) {
-                        L.DomEvent.stopPropagation(ev);
-                        selectedSavedIndex = idx;
-                        redrawAll();
-                    });
-                }
-            });
-
-            // 2. Desenha zona em edicao atual
-            var isCurAllowed = (currentMode === 'ALLOWED');
-            var curStroke = isCurAllowed ? '#1b5e20' : '#b71c1c';
-            var curFill = isCurAllowed ? '#4caf50' : '#ef5350';
-            var iconClass = isCurAllowed ? 'vertex-icon' : 'vertex-icon-blocked';
-
-            if (currentShape === 'POLYGON') {
-                currentPoints.forEach(function(pt, idx) {
-                    var icon = L.divIcon({
-                        className: iconClass,
-                        html: '' + (idx + 1),
-                        iconSize: [24, 24],
-                        iconAnchor: [12, 12]
-                    });
-                    var marker = L.marker(pt, { draggable: true, icon: icon }).addTo(activeGroup);
-                    marker.on('drag', function(e) {
-                        var pos = e.target.getLatLng();
-                        currentPoints[idx] = [pos.lat, pos.lng];
-                        redrawAll();
-                    });
-                });
-
-                if (currentPoints.length >= 2) {
-                    L.polygon(currentPoints, {
-                        color: curStroke,
-                        weight: 3,
-                        fillColor: curFill,
-                        fillOpacity: 0.35
-                    }).addTo(activeGroup);
-                }
-            } else if (currentShape === 'CIRCLE' && currentCenter) {
-                L.circle(currentCenter, {
-                    radius: currentRadius,
-                    color: curStroke,
-                    weight: 3,
-                    fillColor: curFill,
-                    fillOpacity: 0.35
-                }).addTo(activeGroup);
-
-                var cIcon = L.divIcon({
-                    className: iconClass,
-                    html: '⭕',
-                    iconSize: [26, 26],
-                    iconAnchor: [13, 13]
-                });
-                var cMarker = L.marker(currentCenter, { draggable: true, icon: cIcon }).addTo(activeGroup);
-                cMarker.on('drag', function(e) {
-                    var pos = e.target.getLatLng();
-                    currentCenter = [pos.lat, pos.lng];
-                    redrawAll();
-                });
-            }
-
-            updateStatusText();
-        }
-
-        function updateStatusText() {
-            var el = document.getElementById('statusBanner');
-            var allowedCount = savedZones.filter(function(z) { return z.mode === 'ALLOWED'; }).length;
-            var blockedCount = savedZones.filter(function(z) { return z.mode === 'BLOCKED'; }).length;
-            var summary = 'Salvas: ' + allowedCount + ' Permitida(s) 🟢 | ' + blockedCount + ' Proibida(s) 🔴. ';
-
-            if (selectedSavedIndex >= 0 && savedZones[selectedSavedIndex]) {
-                var sel = savedZones[selectedSavedIndex];
-                el.innerText = summary + 'Selecionada: ' + sel.name + ' (toque em 🗑 Excluir para remover ou ajuste o raio).';
+        function finishCurrent() {
+            if (shape === 'POLYGON' && curPoints.length > 0 && curPoints.length < 3) {
+                toast('Marque pelo menos 3 pontos (faltam ' + (3 - curPoints.length) + ').');
                 return;
             }
+            var idx = commitCurrent();
+            if (idx < 0) { toast('Toque no mapa para começar uma área.'); return; }
+            // Abre o editor da zona recem-criada (nome, tipo e cor do card)
+            select(idx, false);
+            toast('Área criada. Ajuste o nome' + (colorsEnabled && isAdditionalAllowed(idx) ? ' e a cor do card' : '') + '.');
+        }
+        function undoCurrent() {
+            if (shape === 'POLYGON' && curPoints.length > 0) curPoints.pop();
+            else if (shape === 'CIRCLE' && curCenter) curCenter = null;
+            else { toast('Nada sendo desenhado. Para remover uma zona, toque nela e use Apagar zona.'); return; }
+            redraw();
+        }
+        function clearAllArmed() {
+            var now = Date.now();
+            if (isDrawing()) { curPoints = []; curCenter = null; redraw(); toast('Desenho atual descartado.'); return; }
+            if (savedZones.length === 0) return;
+            if (now > clearArmedUntil) {
+                clearArmedUntil = now + 3000;
+                $('btnClear').classList.add('armed'); $('btnClear').innerHTML = ICON('trash') + ' Apagar TODAS?';
+                setTimeout(function () { $('btnClear').classList.remove('armed'); $('btnClear').innerHTML = ICON('trash') + ' Limpar'; }, 3000);
+                toast('Toque de novo em 3 s para apagar TODAS as ' + savedZones.length + ' zonas.');
+                return;
+            }
+            savedZones = []; deselect(); toast('Todas as zonas foram apagadas (só vale ao Salvar).');
+        }
 
-            if (currentShape === 'CIRCLE') {
-                if (!currentCenter) {
-                    el.innerText = summary + 'Toque no mapa para posicionar o Círculo (' + formatRadius(currentRadius) + ').';
-                } else {
-                    el.innerText = summary + 'Círculo de ' + formatRadius(currentRadius) + ' pronto! Arraste a barra para expandir ou toque em + Outra Área.';
-                }
+        // ---------- Selecao / editor ----------
+        function select(idx, fit) {
+            if (isDrawing()) commitCurrent();
+            selected = idx;
+            var z = savedZones[idx];
+            if (fit && z) fitZone(z);
+            $('editor').style.display = 'flex';
+            $('drawControls').style.display = 'none';
+            $('zoneName').value = z.name || '';
+            delArmedUntil = 0; $('btnDelZone').classList.remove('armed'); $('btnDelZone').innerHTML = ICON('trash') + ' Apagar zona';
+            renderEditor();
+            updateRadiusRow();
+            redraw();
+        }
+        function deselect() {
+            selected = -1;
+            $('editor').style.display = 'none';
+            $('drawControls').style.display = 'flex';
+            updateRadiusRow();
+            redraw();
+        }
+        function renderEditor() {
+            var z = savedZones[selected]; if (!z) return;
+            $('eAllowed').className = 'seg' + (z.mode === 'ALLOWED' ? ' on-ok' : '');
+            $('eBlocked').className = 'seg' + (z.mode === 'BLOCKED' ? ' on-bad' : '');
+            $('editorTitle').innerText = (z.shape === 'CIRCLE' ? 'Círculo de ' + fmtRadius(z.radiusMeters || 1000) : 'Área de ' + z.points.length + ' pontos');
+            var row = $('colorRow'); row.innerHTML = '';
+            var canColor = colorsEnabled && z.mode === 'ALLOWED' && isAdditionalAllowed(selected);
+            row.style.display = canColor ? 'flex' : 'none';
+            if (canColor) {
+                var lbl = document.createElement('span'); lbl.className = 'hint'; lbl.innerText = 'Cor do card:'; row.appendChild(lbl);
+                palette.forEach(function (p) {
+                    var b = document.createElement('button');
+                    b.className = 'swatch' + ((z.cardColorHex || '').toLowerCase() === p.hex.toLowerCase() ? ' sel' : '');
+                    b.style.background = p.hex; b.title = p.name; b.setAttribute('aria-label', p.name);
+                    b.onclick = function () { z.cardColorHex = p.hex; renderEditor(); redraw(); };
+                    row.appendChild(b);
+                });
+                var none = document.createElement('button');
+                none.className = 'swatch none' + (!z.cardColorHex ? ' sel' : ''); none.innerText = '∅';
+                none.title = 'Sem cor (normal)';
+                none.onclick = function () { z.cardColorHex = ''; renderEditor(); redraw(); };
+                row.appendChild(none);
+            }
+            var hint;
+            if (z.shape === 'POLYGON') hint = 'Arraste os pontos laranja para ajustar. Toque no ＋ entre dois pontos para criar um ponto novo; segure um ponto para removê-lo.';
+            else hint = 'Arraste o centro para mover e use a barra lá em cima para mudar o raio.';
+            if (!canColor && colorsEnabled && z.mode === 'ALLOWED' && !isAdditionalAllowed(selected)) hint += ' A 1ª zona usa a cor normal do card.';
+            $('editorHint').innerText = hint;
+        }
+        function renameSelected(v) { var z = savedZones[selected]; if (z) { z.name = v.trim() || z.name; redrawZonesOnly(); renderZoneList(); } }
+        function setSelectedMode(m) {
+            var z = savedZones[selected]; if (!z) return;
+            z.mode = m;
+            if (m === 'ALLOWED' && colorsEnabled && isAdditionalAllowed(selected) && !z.cardColorHex) z.cardColorHex = defaultZoneColor;
+            renderEditor(); redraw();
+        }
+        function deleteSelected() {
+            if (selected < 0) return;
+            var now = Date.now();
+            if (now > delArmedUntil) {
+                delArmedUntil = now + 3000;
+                $('btnDelZone').classList.add('armed'); $('btnDelZone').innerHTML = ICON('trash') + ' Confirmar?';
+                return;
+            }
+            var name = savedZones[selected].name;
+            savedZones.splice(selected, 1);
+            deselect();
+            toast('"' + name + '" apagada (só vale ao Salvar).');
+        }
+
+        function fitZone(z) {
+            if (z.shape === 'CIRCLE') map.fitBounds(L.latLng(z.centerLat, z.centerLng).toBounds((z.radiusMeters || 1000) * 2.2));
+            else if (z.points && z.points.length) map.fitBounds(z.points, { padding: [60, 60], maxZoom: 16 });
+        }
+
+        // ---------- Desenho ----------
+        function redrawZonesOnly() {
+            savedGroup.clearLayers();
+            savedZones.forEach(function (z, idx) {
+                var isSel = idx === selected;
+                var fill = zoneFill(z, idx);
+                var style = { color: isSel ? '#ffeb3b' : (z.mode === 'ALLOWED' ? fill : '#ff1744'), weight: isSel ? 4 : 3,
+                              fillColor: fill, fillOpacity: isSel ? 0.40 : 0.25 };
+                var layer = null;
+                if (z.shape === 'CIRCLE' && z.centerLat && z.centerLng) layer = L.circle([z.centerLat, z.centerLng], Object.assign({ radius: z.radiusMeters || 1000 }, style));
+                else if (z.points && z.points.length >= 3) layer = L.polygon(z.points, style);
+                if (!layer) return;
+                layer.addTo(savedGroup);
+                layer.bindTooltip(z.name || '', { permanent: true, direction: 'center', className: 'zlabel' });
+                // Toque simples desenha (ate dentro de outra zona: ex. proibida dentro da permitida).
+                // Para editar: toque no nome na lista ou segure o dedo na zona.
+                layer.on('click', function (ev) {
+                    L.DomEvent.stopPropagation(ev);
+                    if (selected >= 0) { deselect(); return; }
+                    addDrawPoint(ev.latlng);
+                });
+                layer.on('contextmenu', function (ev) { L.DomEvent.stopPropagation(ev); select(idx, false); });
+            });
+        }
+
+        function vertexIcon(cls, html) { return L.divIcon({ className: '', html: '<div class="' + cls + '">' + html + '</div>', iconSize: [26, 26], iconAnchor: [13, 13] }); }
+
+        function redraw() {
+            redrawZonesOnly();
+            activeGroup.clearLayers();
+            var sel = savedZones[selected];
+
+            // Editor da zona selecionada: pontos arrastaveis, "+" no meio de cada lado, segurar para apagar
+            if (sel && sel.shape === 'POLYGON') {
+                sel.points.forEach(function (pt, i) {
+                    var m = L.marker(pt, { draggable: true, icon: vertexIcon('vtx edit', i + 1) }).addTo(activeGroup);
+                    m.on('drag', function (e) { var p = e.target.getLatLng(); sel.points[i] = [p.lat, p.lng]; redrawZonesOnly(); });
+                    m.on('dragend', function () { redraw(); });
+                    m.on('contextmenu', function () {
+                        if (sel.points.length <= 3) { toast('Um polígono precisa de pelo menos 3 pontos.'); return; }
+                        sel.points.splice(i, 1); renderEditor(); redraw();
+                    });
+                });
+                sel.points.forEach(function (pt, i) {
+                    var nx = sel.points[(i + 1) % sel.points.length];
+                    var mid = [(pt[0] + nx[0]) / 2, (pt[1] + nx[1]) / 2];
+                    var mm = L.marker(mid, { icon: L.divIcon({ className: '', html: '<div class="mid">+</div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(activeGroup);
+                    mm.on('click', function (ev) { L.DomEvent.stopPropagation(ev); sel.points.splice(i + 1, 0, mid); renderEditor(); redraw(); });
+                });
+            } else if (sel && sel.shape === 'CIRCLE') {
+                var cm = L.marker([sel.centerLat, sel.centerLng], { draggable: true, icon: vertexIcon('vtx edit', '◎') }).addTo(activeGroup);
+                cm.on('drag', function (e) { var p = e.target.getLatLng(); sel.centerLat = p.lat; sel.centerLng = p.lng; redrawZonesOnly(); });
+            }
+
+            // Area sendo desenhada
+            var ok = mode === 'ALLOWED';
+            var stroke = ok ? '#1b5e20' : '#b71c1c', fill = ok ? '#4caf50' : '#ef5350';
+            if (shape === 'POLYGON') {
+                curPoints.forEach(function (pt, i) {
+                    var m = L.marker(pt, { draggable: true, icon: vertexIcon('vtx' + (ok ? '' : ' bad'), i + 1) }).addTo(activeGroup);
+                    m.on('drag', function (e) { var p = e.target.getLatLng(); curPoints[i] = [p.lat, p.lng]; redraw(); });
+                });
+                if (curPoints.length >= 2) L.polygon(curPoints, { color: stroke, weight: 3, fillColor: fill, fillOpacity: 0.35, dashArray: '6 6' }).addTo(activeGroup);
+            } else if (curCenter) {
+                L.circle(curCenter, { radius: radius, color: stroke, weight: 3, fillColor: fill, fillOpacity: 0.35, dashArray: '6 6' }).addTo(activeGroup);
+                var c = L.marker(curCenter, { draggable: true, icon: vertexIcon('vtx' + (ok ? '' : ' bad'), '◎') }).addTo(activeGroup);
+                c.on('drag', function (e) { var p = e.target.getLatLng(); curCenter = [p.lat, p.lng]; redraw(); });
+            }
+            renderZoneList();
+            updateStatus();
+        }
+
+        function renderZoneList() {
+            var list = $('zoneList'); list.innerHTML = '';
+            savedZones.forEach(function (z, idx) {
+                var b = document.createElement('button');
+                b.className = 'chip' + (idx === selected ? ' sel' : '');
+                var dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = zoneFill(z, idx);
+                b.appendChild(dot);
+                b.appendChild(document.createTextNode('' + (z.name || 'Zona')));
+                b.onclick = function () { select(idx, true); };
+                list.appendChild(b);
+            });
+        }
+
+        function updateStatus() {
+            var el = $('status');
+            var a = savedZones.filter(function (z) { return z.mode === 'ALLOWED'; }).length;
+            var b = savedZones.length - a;
+            var head = a + ' liberada(s) · ' + b + ' proibida(s). ';
+            if (selected >= 0) { el.innerText = head + 'Editando "' + savedZones[selected].name + '".'; return; }
+            if (shape === 'CIRCLE') {
+                el.innerText = head + (curCenter ? 'Círculo de ' + fmtRadius(radius) + '. Ajuste o raio e toque em Concluir área.' : 'Toque no mapa para colocar o centro do círculo.');
+            } else if (curPoints.length === 0) {
+                el.innerText = head + (savedZones.length ? 'Para editar, toque no nome da zona acima (ou segure o dedo nela). Toque no mapa para desenhar uma nova.' : 'Toque no mapa para marcar os pontos da sua área.');
+            } else if (curPoints.length < 3) {
+                el.innerText = head + curPoints.length + ' ponto(s). Marque pelo menos 3.';
             } else {
-                if (currentPoints.length === 0) {
-                    el.innerText = summary + 'Toque no mapa para marcar os pontos do Polígono.';
-                } else if (currentPoints.length < 3) {
-                    el.innerText = summary + currentPoints.length + ' ponto(s). Marque pelo menos 3 pontos.';
-                } else {
-                    el.innerText = summary + 'Polígono com ' + currentPoints.length + ' pontos pronto! Toque em + Outra Área ou Salvar.';
-                }
+                el.innerText = head + curPoints.length + ' pontos. Toque em Concluir área quando fechar o contorno.';
             }
         }
 
-        map.on('click', function(e) {
-            selectedSavedIndex = -1;
-            if (currentShape === 'CIRCLE') {
-                currentCenter = [e.latlng.lat, e.latlng.lng];
-            } else {
-                currentPoints.push([e.latlng.lat, e.latlng.lng]);
-            }
-            redrawAll();
+        function addDrawPoint(latlng) {
+            if (shape === 'CIRCLE') curCenter = [latlng.lat, latlng.lng];
+            else curPoints.push([latlng.lat, latlng.lng]);
+            redraw();
+        }
+
+        map.on('click', function (e) {
+            if (selected >= 0) { deselect(); return; }  // toque fora fecha o editor
+            addDrawPoint(e.latlng);
         });
 
-        function undoCurrent() {
-            if (currentShape === 'POLYGON' && currentPoints.length > 0) {
-                currentPoints.pop();
-                redrawAll();
-            } else if (currentShape === 'CIRCLE' && currentCenter) {
-                currentCenter = null;
-                redrawAll();
-            } else if (savedZones.length > 0) {
-                savedZones.pop();
-                selectedSavedIndex = -1;
-                redrawAll();
-            }
+        // ---------- Busca e localizacao (resolvidas pelo app, sem servico extra) ----------
+        function doSearch() {
+            var q = $('searchBox').value.trim();
+            if (q.length < 3) { toast('Digite pelo menos 3 letras.'); return; }
+            $('searchBox').blur();
+            if (window.AndroidBridge && window.AndroidBridge.searchAddress) { toast('Buscando...'); window.AndroidBridge.searchAddress(q); }
+        }
+        function onSearchResult(lat, lng, label) {
+            map.setView([lat, lng], 16);
+            L.popup().setLatLng([lat, lng]).setContent(label).openOn(map);
+        }
+        function onSearchFailed(msg) { toast(msg || 'Endereço não encontrado.'); }
+        function setDriverLocation(lat, lng, center) {
+            me = [lat, lng];
+            if (meMarker) map.removeLayer(meMarker);
+            meMarker = L.marker(me, { interactive: false, icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }) }).addTo(map);
+            if (center) map.setView(me, 15);
+        }
+        function goToMe() {
+            if (me) { map.setView(me, 16); return; }
+            if (window.AndroidBridge && window.AndroidBridge.requestDriverLocation) window.AndroidBridge.requestDriverLocation();
+            else toast('Localização indisponível.');
         }
 
-        function deleteSelectedOrClear() {
-            if (selectedSavedIndex >= 0 && selectedSavedIndex < savedZones.length) {
-                savedZones.splice(selectedSavedIndex, 1);
-                selectedSavedIndex = -1;
-                redrawAll();
-                return;
-            }
-            if (currentPoints.length > 0 || currentCenter) {
-                currentPoints = [];
-                currentCenter = null;
-                redrawAll();
-                return;
-            }
-            if (savedZones.length > 0) {
-                savedZones = [];
-                selectedSavedIndex = -1;
-                redrawAll();
-            }
+        // ---------- Configuracao vinda do app ----------
+        function setZoneColorConfig(enabled, paletteJson, defHex) {
+            colorsEnabled = !!enabled;
+            try { var p = JSON.parse(paletteJson); if (Array.isArray(p) && p.length) palette = p; } catch (e) {}
+            if (defHex) defaultZoneColor = defHex;
+            redraw();
         }
 
         function loadExistingZones(jsonStr) {
@@ -496,62 +514,44 @@
                 var arr = JSON.parse(jsonStr);
                 if (Array.isArray(arr) && arr.length > 0) {
                     savedZones = arr;
-                    redrawAll();
-                    var allLatLngs = [];
-                    savedZones.forEach(function(z) {
-                        if (z.shape === 'CIRCLE' && z.centerLat && z.centerLng) {
-                            allLatLngs.push([z.centerLat, z.centerLng]);
-                        } else if (z.points) {
-                            z.points.forEach(function(p) { allLatLngs.push(p); });
-                        }
+                    redraw();
+                    var all = [];
+                    savedZones.forEach(function (z) {
+                        if (z.shape === 'CIRCLE' && z.centerLat && z.centerLng) all.push([z.centerLat, z.centerLng]);
+                        else if (z.points) z.points.forEach(function (p) { all.push(p); });
                     });
-                    if (allLatLngs.length > 0) {
-                        map.fitBounds(allLatLngs, { padding: [50, 50], maxZoom: 15 });
-                    }
+                    if (all.length) map.fitBounds(all, { padding: [50, 50], maxZoom: 15 });
                 }
             } catch (e) {}
         }
-
-        // Compatibilidade caso seja chamado pelo nome antigo
+        // Compatibilidade com o formato antigo (um unico poligono)
         function loadExistingPolygon(jsonStr) {
             try {
                 var pts = JSON.parse(jsonStr);
                 if (Array.isArray(pts) && pts.length >= 3 && savedZones.length === 0) {
-                    savedZones.push({
-                        id: 1,
-                        name: 'Área Permitida 1',
-                        mode: 'ALLOWED',
-                        shape: 'POLYGON',
-                        points: pts,
-                        centerLat: 0,
-                        centerLng: 0,
-                        radiusMeters: 0
-                    });
-                    redrawAll();
+                    savedZones.push({ id: 1, name: 'Zona 1', mode: 'ALLOWED', shape: 'POLYGON', points: pts,
+                                      centerLat: 0, centerLng: 0, radiusMeters: 0, cardColorHex: '' });
+                    redraw();
                     map.fitBounds(pts, { padding: [50, 50] });
                 }
             } catch (e) {}
         }
 
         function confirmAllZones() {
-            autoCommitCurrentIfValid();
-
-            if (savedZones.length === 0) {
-                if (window.AndroidBridge) {
-                    window.AndroidBridge.onError('Adicione pelo menos 1 Polígono (mín. 3 pontos) ou 1 Círculo no mapa!');
-                }
+            if (shape === 'POLYGON' && curPoints.length > 0 && curPoints.length < 3) {
+                toast('A área em desenho tem só ' + curPoints.length + ' ponto(s). Complete 3 pontos ou toque em Limpar.');
                 return;
             }
-
-            var btn = document.getElementById('btnConfirmAll');
-            if (btn) {
-                btn.innerText = '⏳ Salvando zonas e extraindo ruas...';
-                btn.disabled = true;
+            commitCurrent();
+            if (savedZones.length === 0) {
+                if (window.AndroidBridge) window.AndroidBridge.onError('Desenhe pelo menos 1 área (3 pontos ou 1 círculo).');
+                return;
             }
-            if (window.AndroidBridge && window.AndroidBridge.onZonesSelected) {
-                window.AndroidBridge.onZonesSelected(JSON.stringify(savedZones));
-            }
+            var btn = $('btnSave'); btn.innerHTML = ICON('sync', 'spin') + ' Salvando e lendo as ruas da área...'; btn.disabled = true;
+            if (window.AndroidBridge && window.AndroidBridge.onZonesSelected) window.AndroidBridge.onZonesSelected(JSON.stringify(savedZones));
         }
+
+        redraw();
     </script>
 </body>
 </html>

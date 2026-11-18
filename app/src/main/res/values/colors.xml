@@ -1,47 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Paleta do Filtro Inteligente (modo claro). A versão escura fica em values-night/colors.xml. -->
+<!--
+    Paleta do Filtro Inteligente (modo claro): neutros quentes (marfim) + verde da marca mais sóbrio.
+    Marfim em vez de branco-azulado cansa menos a vista e deixa os cards brancos "flutuarem" sem sombra.
+    A versão escura fica em values-night/colors.xml.
+-->
 <resources>
-    <!-- Marca: verde do logo -->
-    <color name="fi_primary">#007A45</color>
+    <!-- Marca: verde do logo, menos saturado -->
+    <color name="fi_primary">#111111</color>
     <color name="fi_on_primary">#FFFFFF</color>
-    <color name="fi_primary_container">#C9F7DD</color>
-    <color name="fi_on_primary_container">#00341C</color>
-    <color name="fi_primary_inverse">#00E676</color>
+    <color name="fi_primary_container">#E8E8E6</color>
+    <color name="fi_on_primary_container">#111111</color>
+    <color name="fi_primary_inverse">#06C167</color>
 
     <!-- Âmbar: dinheiro, combustível, atenção -->
-    <color name="fi_secondary">#8A6100</color>
+    <color name="fi_secondary">#7A5C00</color>
     <color name="fi_on_secondary">#FFFFFF</color>
-    <color name="fi_secondary_container">#FFE7A8</color>
-    <color name="fi_on_secondary_container">#2B1E00</color>
+    <color name="fi_secondary_container">#FFE14D</color>
+    <color name="fi_on_secondary_container">#1F1A00</color>
 
-    <!-- Roxo: corrida entre zonas, praticidade -->
-    <color name="fi_tertiary">#5B43C4</color>
+    <!-- Roxo: corrida entre zonas -->
+    <color name="fi_tertiary">#C8102E</color>
     <color name="fi_on_tertiary">#FFFFFF</color>
-    <color name="fi_tertiary_container">#E6DEFF</color>
-    <color name="fi_on_tertiary_container">#1D0F5C</color>
+    <color name="fi_tertiary_container">#FDE0E3</color>
+    <color name="fi_on_tertiary_container">#5C0A12</color>
 
-    <color name="fi_error">#B3261E</color>
+    <!-- Atenção (status "recomendado"): âmbar legível sobre os fundos do tema -->
+    <color name="fi_warning">#8A5300</color>
+    <color name="fi_error">#D0101F</color>
     <color name="fi_on_error">#FFFFFF</color>
-    <color name="fi_error_container">#F9DEDC</color>
-    <color name="fi_on_error_container">#410E0B</color>
+    <color name="fi_error_container">#FDDCDF</color>
+    <color name="fi_on_error_container">#4D060C</color>
 
-    <!-- Superfícies -->
-    <color name="fi_background">#F4F7FB</color>
-    <color name="fi_surface">#FFFFFF</color>
-    <color name="fi_surface_dim">#DCE2EB</color>
-    <color name="fi_surface_bright">#FFFFFF</color>
+    <!-- Superfícies (marfim quente) -->
+    <color name="fi_background">#F6F5F0</color>
+    <color name="fi_surface">#FFFEFC</color>
+    <color name="fi_surface_dim">#DDD9CF</color>
+    <color name="fi_surface_bright">#FFFEFC</color>
     <color name="fi_surface_container_lowest">#FFFFFF</color>
-    <color name="fi_surface_container_low">#F7F9FC</color>
-    <color name="fi_surface_container">#EEF2F7</color>
-    <color name="fi_surface_container_high">#E6EBF2</color>
-    <color name="fi_surface_container_highest">#DDE4EE</color>
-    <color name="fi_surface_variant">#E3E9F1</color>
-    <color name="fi_surface_inverse">#1B2536</color>
-    <color name="fi_on_surface_inverse">#EEF2F7</color>
+    <color name="fi_surface_container_low">#FAF9F5</color>
+    <color name="fi_surface_container">#F1EFE8</color>
+    <color name="fi_surface_container_high">#EAE7DF</color>
+    <color name="fi_surface_container_highest">#E2DED4</color>
+    <color name="fi_surface_variant">#ECE9E1</color>
+    <color name="fi_surface_inverse">#2B2A27</color>
+    <color name="fi_on_surface_inverse">#F1EFE8</color>
 
     <!-- Texto e linhas -->
-    <color name="fi_on_surface">#0F172A</color>
-    <color name="fi_on_surface_variant">#475569</color>
-    <color name="fi_outline">#7A8799</color>
-    <color name="fi_outline_variant">#D5DCE6</color>
+    <color name="fi_on_surface">#22211E</color>
+    <color name="fi_on_surface_variant">#5F5C55</color>
+    <color name="fi_outline">#8B877D</color>
+    <color name="fi_outline_variant">#E2DED5</color>
+
+    <!-- Console de logs (escuro nos dois temas, como um terminal) -->
+    <color name="fi_console_bg">#171615</color>
+    <color name="fi_console_stroke">#33312D</color>
 </resources>

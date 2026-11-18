@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Acentos por assunto (modo escuro): fundos escuros e saturação baixa para não ofuscar à noite. -->
+<resources>
+    <color name="acc_teal_container">#0F3B26</color>
+    <color name="acc_teal_on">#8EEBB8</color>
+    <color name="acc_blue_container">#172C57</color>
+    <color name="acc_blue_on">#B4CBFB</color>
+    <color name="acc_amber_container">#4A3D00</color>
+    <color name="acc_amber_on">#FFE14D</color>
+    <color name="acc_orange_container">#4A2A0C</color>
+    <color name="acc_orange_on">#FFD3A6</color>
+    <color name="acc_violet_container">#332C5C</color>
+    <color name="acc_violet_on">#DAD2FF</color>
+    <color name="acc_rose_container">#4D1426</color>
+    <color name="acc_rose_on">#FFC9D6</color>
+    <color name="acc_red_container">#5C1219</color>
+    <color name="acc_red_on">#FFB8BE</color>
+    <color name="acc_cyan_container">#163B42</color>
+    <color name="acc_cyan_on">#B3E8F1</color>
+    <color name="acc_slate_container">#2A2A2A</color>
+    <color name="acc_slate_on">#EDEDED</color>
+
+    <color name="st_ok">#2FD07F</color>
+    <color name="st_ok_container">#0F3B26</color>
+    <color name="st_warn">#FFD84D</color>
+    <color name="st_warn_container">#3F3400</color>
+    <color name="st_bad">#FF7B85</color>
+    <color name="st_bad_container">#5C1219</color>
+    <color name="st_off">#9A978E</color>
+    <color name="st_off_container">#2E2D2A</color>
+
+    <color name="hero_on_start">#000000</color>
+    <color name="hero_on_end">#04603A</color>
+    <color name="hero_pause_start">#6B5100</color>
+    <color name="hero_pause_end">#5A3700</color>
+    <color name="hero_warn_start">#B3121F</color>
+    <color name="hero_warn_end">#7A0A14</color>
+    <color name="hero_off_start">#363636</color>
+    <color name="hero_off_end">#1E1E1E</color>
+    <color name="hero_text">#FFFFFF</color>
+    <color name="hero_text_soft">#D2EFDF</color>
+</resources>

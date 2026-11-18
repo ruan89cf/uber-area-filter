@@ -9,8 +9,10 @@ import com.ruan.uberareafilter.model.FilterConfig
 import com.ruan.uberareafilter.model.MapZone
 import com.ruan.uberareafilter.model.ZoneMode
 import com.ruan.uberareafilter.model.ZoneShape
+import com.ruan.uberareafilter.model.ZoneStreetIndex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -23,9 +25,10 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 enum class Decision {
-    INSIDE_AREA,    // 🟢 Card Verde (Embarque e Destino na mesma zona permitida)
-    INTER_ZONE,     // 🟣 Card Roxo (Corrida entre zonas diferentes de aceitacao — sem auto-aceite)
+    INSIDE_AREA,    // 🟢 Card Verde (Embarque e Destino comprovadamente na zona permitida)
+    INTER_ZONE,     // 🟣 Card Roxo (Corrida entre zonas diferentes de aceitacao)
     RETURN_TO_AREA, // 🟡 Card Amarelo (Motorista fora da area + embarque <= 1,0 km — sem auto-recusa p/ retornar a area)
+    UNCERTAIN,      // 🟠 Card Laranja (Local incerto: nunca aceita sozinho; recusa so se voce ativar)
     OUTSIDE_AREA,   // 🔴 Card Vermelho (Fora dos criterios — auto-recusa)
     UNKNOWN_KEEP
 }
@@ -33,32 +36,44 @@ enum class Decision {
 data class EvaluationResult(
     val decision: Decision,
     val reason: String,
-    val checklistText: String = reason
+    val checklistText: String = reason,
+    // Zona permitida onde cai o destino (para pintar o card com a cor da zona)
+    val dropoffZoneId: Long? = null,
+    // Enderecos de locais bloqueados aprendidos nesta oferta (o servico grava para as proximas)
+    val learnedBlockedPlaces: List<BlockedPlace> = emptyList()
+)
+
+/** Candidato bruto devolvido pelo Geocoder (copiado de android.location.Address para ser testavel). */
+data class GeoCandidate(
+    val lat: Double,
+    val lng: Double,
+    val thoroughfare: String?,
+    val subThoroughfare: String?,
+    val featureName: String?,
+    val subLocality: String?,
+    val locality: String?,
+    val subAdminArea: String?,
+    val adminArea: String?,
+    val addressLine: String?
 )
 
 /**
- * Avaliador inteligente de corridas:
- * - Gera checklist visual claro com ✔ (atendeu) e ✘ (nao atendeu) para cada requisito
- * - Suporta Corrida entre Zonas de Aceitacao (Card Roxo 🟣, respeitando KM Total Maximo)
- * - Verifica multiplos Poligonos e Circulos (Permitidos 🟢 e Proibidos 🔴)
- * - Regra da Av. Brasil (Lado Impar Bonsucesso/Ramos vs Lado Par Mare)
+ * Avaliador de corridas:
+ * - Checklist visual ✔ / ✘ / ⚠ para cada requisito
+ * - Motor de localizacao com NIVEL DE CONFIANCA (ver LocationRules):
+ *   so aprova quando ha prova de que embarque/destino estao dentro da zona.
+ * - Corrida entre zonas (card roxo), zonas proibidas, regra da Av. Brasil.
  */
 class AreaEvaluator(private val context: Context? = null) {
 
-    private val geoCache = LruCache<String, List<Pair<Double, Double>>>(250)
+    private val geoCache = LruCache<String, List<GeoCandidate>>(400)
+    private val streetKeyCache = HashMap<String, List<Pair<StreetKey, String>>>()
 
-    private val streetPrefixRegex = Regex(
-        """^(rua|r\.|avenida|av\.|av\s|estrada|estr\.|travessa|tv\.|tv\s|praca|pca\.|pca\s|pc\.|pc\s|via\s|viela|beco|largo|alameda|rodovia)\b.*""",
-        RegexOption.IGNORE_CASE
-    )
-    private val streetTypeStripRegex = Regex(
-        """^(rua|r\.?|avenida|av\.?|estrada|estr\.?|travessa|tv\.?|praca|pca\.?|pc\.?|alameda|al\.?|rodovia|rod\.?)\s+""",
-        RegexOption.IGNORE_CASE
-    )
     private val avBrasilNumberRegex = Regex(
-        """(?:av\.?|avenida)\s+brasil\s*[,nº°:-]*\s*(\d{2,5})\b""",
+        """(?:av\.?|avenida)\s+brasil\s*[,nº°:-]*\s*(\d{1,5})\b""",
         RegexOption.IGNORE_CASE
     )
+    // Indicadores do lado Mare: SEMPRE palavra inteira ("mare" NAO pode casar com "Marechal Hermes")
     private val mareSideIndicators = listOf(
         "mare",
         "vila do joao",
@@ -72,7 +87,7 @@ class AreaEvaluator(private val context: Context? = null) {
         "salsa e merengue",
         "roquete pinto",
         "piscinao"
-    )
+    ).map { wordRegex(it) }
     private val bonsucessoSideIndicators = listOf(
         "bonsucesso",
         "ramos",
@@ -80,9 +95,43 @@ class AreaEvaluator(private val context: Context? = null) {
         "penha",
         "manguinhos",
         "higienopolis"
-    )
+    ).map { wordRegex(it) }
 
-    suspend fun evaluate(offer: ParsedRideOffer, config: FilterConfig): EvaluationResult = coroutineScope {
+    suspend fun evaluate(
+        offer: ParsedRideOffer,
+        config: FilterConfig,
+        driverFix: DriverFix? = null
+    ): EvaluationResult {
+        val learned = learnBlockedPlaces(offer, config)
+        val result = evaluateCore(offer, config, driverFix)
+        return if (learned.isEmpty()) result else result.copy(learnedBlockedPlaces = learned)
+    }
+
+    /**
+     * Nome bloqueado que aparece como NOME DO LOCAL de um endereco com rua+numero
+     * ("Caxias Shopping, Rodovia Washington Luiz, 2895") -> guarda o endereco para bloquear
+     * as outras entradas/nomes do mesmo lugar ("Entrada norte, Rod. Washington Luiz, 2895").
+     */
+    internal fun learnBlockedPlaces(offer: ParsedRideOffer, config: FilterConfig): List<BlockedPlace> {
+        if (config.blockedKeywords.isEmpty()) return emptyList()
+        val out = mutableListOf<BlockedPlace>()
+        for (term in config.blockedKeywords) {
+            if (BlockedMatcher.addressKeyword(term) != null) continue
+            for (addr in listOf(offer.pickupAddress, offer.dropoffAddress)) {
+                val p = BlockedMatcher.learn(term, addr) ?: continue
+                if (config.blockedPlaces.none { BlockedMatcher.samePlace(it, p) } && out.none { BlockedMatcher.samePlace(it, p) }) {
+                    out.add(p)
+                }
+            }
+        }
+        return out
+    }
+
+    private suspend fun evaluateCore(
+        offer: ParsedRideOffer,
+        config: FilterConfig,
+        driverFix: DriverFix?
+    ): EvaluationResult = coroutineScope {
         val violations = mutableListOf<String>()
         val nonAreaViolations = mutableListOf<String>()
         val filterChecks = mutableListOf<String>()
@@ -150,6 +199,19 @@ class AreaEvaluator(private val context: Context? = null) {
             }
         }
 
+        // 3b. Filtro de R$ minimo por KM (valor da corrida / KM total)
+        if (config.filterByPricePerKmEnabled && offer.pricePerKm != null) {
+            val fmt = String.format(ptBr, "%.2f", offer.pricePerKm)
+            val minFmt = String.format(ptBr, "%.2f", config.minPricePerKm)
+            if (offer.pricePerKm + 0.0001 < config.minPricePerKm) {
+                violations.add("R$/km: R$$fmt (mín R$$minFmt)")
+                nonAreaViolations.add("R$/km")
+                filterChecks.add("✘ R$$fmt/km (mín $minFmt)")
+            } else {
+                filterChecks.add("✔ R$$fmt/km")
+            }
+        }
+
         // 4. Filtro de Distancia maxima ate o Embarque (km)
         if (config.filterByPickupDistEnabled && offer.pickupDistanceKm != null) {
             val fmt = String.format(ptBr, "%.1f", offer.pickupDistanceKm)
@@ -176,28 +238,58 @@ class AreaEvaluator(private val context: Context? = null) {
             }
         }
 
-        // 6. Lista de palavras/locais bloqueados manualmente
+        // 6. Lista de palavras/locais bloqueados manualmente — PALAVRA INTEIRA
+        //    ("Penha" bloqueia "Rua X - Penha", mas "Luz" nao bloqueia mais "Luzia"/"Santa Luzia")
         val normalizedTexts = offer.allTexts.map { TextNormalizer.normalize(it) }
+        var blockedHit: String? = null
         for (blocked in config.blockedKeywords) {
+            if (BlockedMatcher.addressKeyword(blocked) != null) continue // endereco com numero: conferido abaixo
             val normBlocked = TextNormalizer.normalize(blocked)
-            if (normBlocked.isNotEmpty() && normalizedTexts.any { it.contains(normBlocked) }) {
-                violations.add("Bloqueado: $blocked")
-                nonAreaViolations.add("Bloqueado: $blocked")
-                filterChecks.add("✘ Bloqueado: $blocked")
+            if (normBlocked.length < 2) continue
+            val rx = wordRegex(normBlocked)
+            if (normalizedTexts.any { rx.containsMatchIn(it) }) {
+                blockedHit = blocked
                 break
             }
         }
+        // 6b. Mesmo ENDERECO de um local bloqueado (outro nome do mesmo lugar) ou "Rua X nº 123" da lista
+        if (blockedHit == null) {
+            blockedHit = BlockedMatcher.matchAddress(
+                listOf(offer.pickupAddress, offer.dropoffAddress),
+                config.blockedKeywords,
+                config.blockedPlaces
+            )
+        }
+        if (blockedHit != null) {
+            violations.add("Bloqueado: $blockedHit")
+            nonAreaViolations.add("Bloqueado: $blockedHit")
+            filterChecks.add("✘ Bloqueado: $blockedHit")
+        }
 
-        // 7. Verificacao das Zonas Demarcadas no Mapa (Permitidas 🟢 e Proibidas 🔴) + Lista de Ruas
+        // 7. Zonas Demarcadas no Mapa (Permitidas 🟢 e Proibidas 🔴)
         val allowedZones = config.mapZones.filter { it.mode == ZoneMode.ALLOWED }
         val blockedZones = config.mapZones.filter { it.mode == ZoneMode.BLOCKED }
-        val hasAllowedZone = allowedZones.isNotEmpty() || config.polygonPoints.size >= 3
-        val hasStreetList = config.allowedKeywords.isNotEmpty()
+        val effectiveAllowedZones = if (allowedZones.isNotEmpty()) {
+            allowedZones
+        } else if (config.polygonPoints.size >= 3) {
+            listOf(
+                MapZone(
+                    id = 1L,
+                    name = "Zona 1",
+                    mode = ZoneMode.ALLOWED,
+                    shape = ZoneShape.POLYGON,
+                    points = config.polygonPoints
+                )
+            )
+        } else {
+            emptyList()
+        }
+        val hasStreetList = config.allowedKeywords.isNotEmpty() || config.trustedStreets.isNotEmpty()
 
         val pickup = offer.pickupAddress
         val dropoff = offer.dropoffAddress
 
-        if (!hasAllowedZone && !hasStreetList && blockedZones.isEmpty()) {
+        if (effectiveAllowedZones.isEmpty() && !hasStreetList && blockedZones.isEmpty()) {
             if (violations.isNotEmpty()) {
                 val summary = buildChecklistString(filterChecks, null, null)
                 return@coroutineScope EvaluationResult(
@@ -210,6 +302,22 @@ class AreaEvaluator(private val context: Context? = null) {
                 Decision.UNKNOWN_KEEP,
                 "Demarque sua área no mapa para ativar o filtro de ruas"
             )
+        }
+
+        val uncertainties = mutableListOf<String>()
+
+        fun lineFor(label: String, address: String, res: AreaVerdict, shortTag: String): String {
+            return when (res.kind) {
+                AreaVerdictKind.INSIDE -> "✔ $label: ${address.take(34)}"
+                AreaVerdictKind.OUTSIDE -> {
+                    violations.add("$shortTag fora (${res.reason})")
+                    "✘ $label: ${res.reason}"
+                }
+                AreaVerdictKind.UNCERTAIN -> {
+                    uncertainties.add("$shortTag incerto (${res.reason})")
+                    "⚠ $label: ${res.reason}"
+                }
+            }
         }
 
         if (config.requireBothPickupAndDropoff) {
@@ -225,32 +333,38 @@ class AreaEvaluator(private val context: Context? = null) {
                 return@coroutineScope EvaluationResult(Decision.UNKNOWN_KEEP, "Lendo endereços da corrida...")
             }
 
-            val pickupDeferred = async { checkAddressInArea(pickup, config, allowedZones, blockedZones) }
-            val dropoffDeferred = async { checkAddressInArea(dropoff, config, allowedZones, blockedZones) }
+            val driverEvidence = LocationRules.driverPickupEvidence(
+                driverFix, offer.pickupDistanceKm, effectiveAllowedZones, blockedZones
+            )
+            val pickupDeferred = async { checkAddressInArea(pickup, config, effectiveAllowedZones, blockedZones, driverEvidence) }
+            val dropoffDeferred = async { checkAddressInArea(dropoff, config, effectiveAllowedZones, blockedZones, null) }
             val pickupRes = pickupDeferred.await()
             val dropoffRes = dropoffDeferred.await()
 
-            val pickupLine = if (pickupRes.ok) {
-                "✔ Embarque: ${pickup.take(34)}"
+            // Leva o motorista PARA a area: embarque fora/incerto, destino dentro (e nada proibido)
+            val headsIntoArea = config.acceptRidesIntoArea &&
+                !pickupRes.ok && dropoffRes.ok &&
+                !pickupRes.explicitBlocked && !dropoffRes.explicitBlocked
+            val pickupLine = if (headsIntoArea) {
+                "✔ Embarque fora, leva p/ área: ${pickup.take(28)}"
             } else {
-                violations.add("Emb. fora (${pickupRes.reason})")
-                "✘ Embarque: ${pickupRes.reason}"
+                lineFor("Embarque", pickup, pickupRes, "Emb.")
             }
+            val dropoffLine = lineFor("Destino", dropoff, dropoffRes, "Dest.")
 
-            val dropoffLine = if (dropoffRes.ok) {
-                "✔ Destino: ${dropoff.take(34)}"
-            } else {
-                violations.add("Dest. fora (${dropoffRes.reason})")
-                "✘ Destino: ${dropoffRes.reason}"
-            }
-
-            // Verifica se e uma corrida ENTRE duas zonas permitidas diferentes (Zona A -> Zona B)
+            // Corrida ENTRE duas zonas permitidas diferentes (Zona A -> Zona B).
+            // Voltar para a Zona 1 (principal, a primeira criada) nunca conta como entre zonas.
+            val mainZoneId = effectiveAllowedZones.firstOrNull()?.id
+            val returnsToMainZone = pickupRes.ok && dropoffRes.ok && effectiveAllowedZones.size > 1 &&
+                pickupRes.zoneId != null && dropoffRes.zoneId == mainZoneId && pickupRes.zoneId != mainZoneId
             val isDifferentZones = pickupRes.ok &&
                 dropoffRes.ok &&
-                allowedZones.size > 1 &&
-                pickupRes.matchedZoneId != null &&
-                dropoffRes.matchedZoneId != null &&
-                pickupRes.matchedZoneId != dropoffRes.matchedZoneId
+                effectiveAllowedZones.size > 1 &&
+                pickupRes.zoneId != null &&
+                dropoffRes.zoneId != null &&
+                pickupRes.zoneId != dropoffRes.zoneId &&
+                !returnsToMainZone
+            if (returnsToMainZone) filterChecks.add("✔ Volta p/ ${dropoffRes.zoneName ?: "zona principal"}")
 
             if (isDifferentZones && !config.allowInterZoneRides) {
                 violations.add("Entre zonas (${pickupRes.zoneName} ➔ ${dropoffRes.zoneName})")
@@ -259,13 +373,11 @@ class AreaEvaluator(private val context: Context? = null) {
                 filterChecks.add("🟣 ${pickupRes.zoneName} ➔ ${dropoffRes.zoneName}")
             }
 
-            // Regra do Card Amarelo 🟡 (Retorno para zona permitida):
-            // So dispara quando o motorista esta FORA (!pickupRes.ok), o embarque e <= 1 km
-            // e o DESTINO leva PARA DENTRO de alguma zona permitida (dropoffRes.ok == true)!
-            // NUNCA dispara se a corrida estiver levando para fora da area demarcada.
-            val isExplicitlyForbiddenArea = pickupRes.isExplicitlyBlocked || dropoffRes.isExplicitlyBlocked
+            // Card Amarelo 🟡 (retorno para a zona): embarque fora/incerto a <= 1 km e DESTINO comprovadamente dentro.
+            val isExplicitlyForbiddenArea = pickupRes.explicitBlocked || dropoffRes.explicitBlocked
             val isPickupWithin1Km = offer.pickupDistanceKm != null && offer.pickupDistanceKm <= 1.05
             if (config.yellowCardOutsideAreaEnabled &&
+                !headsIntoArea &&
                 !pickupRes.ok &&
                 dropoffRes.ok &&
                 isPickupWithin1Km &&
@@ -292,19 +404,29 @@ class AreaEvaluator(private val context: Context? = null) {
                 )
             }
 
-            // Se passou em todos os filtros (incluindo KM Total Maximo) e vai de uma Zona A para uma Zona B -> CARD ROXO!
+            if (uncertainties.isNotEmpty()) {
+                return@coroutineScope EvaluationResult(
+                    Decision.UNCERTAIN,
+                    "⚠ " + uncertainties.joinToString(" • "),
+                    checklist
+                )
+            }
+
             if (isDifferentZones && config.allowInterZoneRides) {
                 return@coroutineScope EvaluationResult(
                     Decision.INTER_ZONE,
                     "🟣 Corrida entre zonas: ${pickupRes.zoneName} ➔ ${dropoffRes.zoneName}",
-                    checklist
+                    checklist,
+                    dropoffZoneId = dropoffRes.zoneId
                 )
             }
 
             return@coroutineScope EvaluationResult(
                 Decision.INSIDE_AREA,
-                "✔ Embarque e Destino na área (${dropoffRes.reason})",
-                checklist
+                if (headsIntoArea) "✔ Leva você para a área (embarque fora, destino: ${dropoffRes.reason})"
+                else "✔ Embarque e Destino na área (${dropoffRes.reason})",
+                checklist,
+                dropoffZoneId = dropoffRes.zoneId
             )
         } else {
             val target = dropoff ?: pickup
@@ -322,23 +444,24 @@ class AreaEvaluator(private val context: Context? = null) {
                 return@coroutineScope EvaluationResult(Decision.UNKNOWN_KEEP, "Lendo endereço de destino...")
             }
 
-            // Verifica o destino e tambem identifica a zona de embarque (para exibir Embarque na notificacao e detectar Card Roxo)
-            val targetDeferred = async { checkAddressInArea(target, config, allowedZones, blockedZones) }
+            val driverEvidence = LocationRules.driverPickupEvidence(
+                driverFix, offer.pickupDistanceKm, effectiveAllowedZones, blockedZones
+            )
+            val targetDeferred = async {
+                checkAddressInArea(
+                    target, config, effectiveAllowedZones, blockedZones,
+                    if (isDropoffTarget) null else driverEvidence
+                )
+            }
             val pickupInfoDeferred = if (isDropoffTarget && !pickup.isNullOrBlank()) {
-                async { checkAddressInArea(pickup, config, allowedZones, blockedZones) }
+                async { checkAddressInArea(pickup, config, effectiveAllowedZones, blockedZones, driverEvidence) }
             } else {
                 null
             }
             val res = targetDeferred.await()
             val pickupRes = pickupInfoDeferred?.await()
 
-            val addrCheckLine = if (res.ok) {
-                "✔ $addrLabel: ${target.take(34)}"
-            } else {
-                val shortTag = if (isDropoffTarget) "Dest. fora" else "Emb. fora"
-                violations.add("$shortTag (${res.reason})")
-                "✘ $addrLabel: ${res.reason}"
-            }
+            val addrCheckLine = lineFor(addrLabel, target, res, if (isDropoffTarget) "Dest." else "Emb.")
 
             val pickupDisplayLine = if (isDropoffTarget && !pickup.isNullOrBlank()) {
                 "📍 Embarque: ${pickup.take(34)}"
@@ -347,18 +470,24 @@ class AreaEvaluator(private val context: Context? = null) {
             }
 
             // Tambem bloqueia caso o embarque caia explicitamente em Zona Proibida 🔴 / Lado Par Mare
-            if (pickupRes?.isExplicitlyBlocked == true && isDropoffTarget) {
+            if (pickupRes?.explicitBlocked == true && isDropoffTarget) {
                 violations.add("Emb. bloqueado (${pickupRes.reason})")
             }
 
+            val mainZoneId = effectiveAllowedZones.firstOrNull()?.id
+            val returnsToMainZone = isDropoffTarget && pickupRes != null && pickupRes.ok && res.ok &&
+                effectiveAllowedZones.size > 1 && pickupRes.zoneId != null &&
+                res.zoneId == mainZoneId && pickupRes.zoneId != mainZoneId
             val isDifferentZones = isDropoffTarget &&
                 pickupRes != null &&
                 pickupRes.ok &&
                 res.ok &&
-                allowedZones.size > 1 &&
-                pickupRes.matchedZoneId != null &&
-                res.matchedZoneId != null &&
-                pickupRes.matchedZoneId != res.matchedZoneId
+                effectiveAllowedZones.size > 1 &&
+                pickupRes.zoneId != null &&
+                res.zoneId != null &&
+                pickupRes.zoneId != res.zoneId &&
+                !returnsToMainZone
+            if (returnsToMainZone) filterChecks.add("✔ Volta p/ ${res.zoneName ?: "zona principal"}")
 
             if (isDifferentZones && !config.allowInterZoneRides) {
                 violations.add("Entre zonas (${pickupRes?.zoneName} ➔ ${res.zoneName})")
@@ -381,18 +510,28 @@ class AreaEvaluator(private val context: Context? = null) {
                 )
             }
 
+            if (uncertainties.isNotEmpty()) {
+                return@coroutineScope EvaluationResult(
+                    Decision.UNCERTAIN,
+                    "⚠ " + uncertainties.joinToString(" • "),
+                    checklist
+                )
+            }
+
             if (isDifferentZones && config.allowInterZoneRides) {
                 return@coroutineScope EvaluationResult(
                     Decision.INTER_ZONE,
                     "🟣 Corrida entre zonas: ${pickupRes?.zoneName} ➔ ${res.zoneName}",
-                    checklist
+                    checklist,
+                    dropoffZoneId = res.zoneId
                 )
             }
 
             return@coroutineScope EvaluationResult(
                 Decision.INSIDE_AREA,
                 "✔ $addrLabel na área (${res.reason})",
-                checklist
+                checklist,
+                dropoffZoneId = if (isDropoffTarget) res.zoneId else null
             )
         }
     }
@@ -415,179 +554,342 @@ class AreaEvaluator(private val context: Context? = null) {
         return rows.joinToString("\n")
     }
 
-    private data class ZoneCheckResult(
-        val ok: Boolean,
-        val reason: String,
-        val matchedZoneId: Long? = null,
-        val zoneName: String? = null,
-        val isExplicitlyBlocked: Boolean = false
-    )
-
     /**
-     * Normaliza tanto "R. Pirangi" quanto "Rua Pirangi" e pequenas variacoes ortograficas
-     * ("Rua Souza Lôbo" vs "Rua Sousa Lobo") para o mesmo nucleo!
+     * Mantido por compatibilidade: nucleo normalizado de uma rua ("R. Pirangi" == "Rua Pirangi").
      */
-    internal fun normalizeStreetCore(raw: String): String {
-        val norm = TextNormalizer.normalize(raw)
-            .replace(".", " ")
-            .replace(Regex("""\s+"""), " ")
-            .trim()
-        return norm.replace(streetTypeStripRegex, "")
-            .replace("souza", "sousa")
-            .replace("luiz", "luis")
-            .replace("braz", "bras")
-            .replace("teresa", "tereza")
-            .replace("walter", "valter")
-            .replace("waldir", "valdir")
-            .trim()
-    }
+    internal fun normalizeStreetCore(raw: String): String =
+        AddressParser.streetKeyOf(raw)?.core ?: TextNormalizer.normalize(raw)
 
-    private fun findMatchingStreet(
-        normAddr: String,
-        normExplicitStreet: String?,
-        coreExplicitStreet: String?,
-        streetList: List<String>
-    ): String? {
-        return streetList.firstOrNull { kw ->
-            val normKw = TextNormalizer.normalize(kw)
-            val coreKw = normalizeStreetCore(kw)
-            if (normKw.length < 3 || coreKw.length < 3) return@firstOrNull false
-            if (normExplicitStreet != null && coreExplicitStreet != null && coreExplicitStreet.length >= 3) {
-                if (normKw.startsWith("estacao ")) return@firstOrNull false
-                val phoneticExplicit = normalizeStreetCore(normExplicitStreet)
-                normExplicitStreet.contains(normKw) ||
-                    normKw.contains(normExplicitStreet) ||
-                    coreExplicitStreet == coreKw ||
-                    phoneticExplicit == coreKw ||
-                    (coreKw.length >= 5 && (coreExplicitStreet.contains(coreKw) || phoneticExplicit.contains(coreKw)))
-            } else {
-                val phoneticAddr = normalizeStreetCore(normAddr)
-                normAddr.contains(normKw) || (coreKw.length >= 5 && (normAddr.contains(coreKw) || phoneticAddr.contains(coreKw)))
-            }
-        }
-    }
+    // ------------------------------------------------------------------
+    // Localizacao de um endereco
+    // ------------------------------------------------------------------
 
     private suspend fun checkAddressInArea(
         address: String,
         config: FilterConfig,
         allowedZones: List<MapZone>,
-        blockedZones: List<MapZone>
-    ): ZoneCheckResult {
+        blockedZones: List<MapZone>,
+        driverEvidence: AreaVerdict?
+    ): AreaVerdict {
         val normAddr = TextNormalizer.normalize(address)
 
         if (config.avBrasilOddSideOnly && isAvBrasilAddress(normAddr)) {
             val avBrasilViolation = evaluateAvBrasilSide(address, normAddr)
             if (avBrasilViolation != null) {
-                return ZoneCheckResult(ok = false, reason = avBrasilViolation, isExplicitlyBlocked = true)
+                return AreaVerdict(AreaVerdictKind.OUTSIDE, avBrasilViolation, explicitBlocked = true)
             }
         }
 
-        val explicitStreet = extractExplicitStreetSegment(address)
-        val normExplicitStreet = explicitStreet?.let { TextNormalizer.normalize(it) }
-        val coreExplicitStreet = explicitStreet?.let { normalizeStreetCore(it) }
-        val mentionsTrainStation = normAddr.contains("estacao")
+        val parts = AddressParser.parse(address)
+        val street = streetEvidence(parts, config, allowedZones)
 
-        val effectiveAllowedZones = if (allowedZones.isNotEmpty()) {
-            allowedZones
-        } else if (config.polygonPoints.size >= 3) {
-            listOf(
-                MapZone(
-                    id = 1L,
-                    name = "Zona 1",
-                    mode = ZoneMode.ALLOWED,
-                    shape = ZoneShape.POLYGON,
-                    points = config.polygonPoints
+        // Atalho (sem rede = decisao instantanea): rua que nao encosta em nenhuma zona.
+        // Rua INTERNA continua consultando o mapa: o Rio tem muitas ruas homonimas
+        // ("Rua Sao Jorge" em varios bairros) e o bairro do card e a unica forma de pegar a errada.
+        val skipNetwork = blockedZones.isEmpty() && driverEvidence == null &&
+            street.knowledge == StreetKnowledge.NOT_IN_ZONE
+        val needsGeocode = !skipNetwork
+        val located = if (needsGeocode && (allowedZones.isNotEmpty() || blockedZones.isNotEmpty())) {
+            locate(parts, allowedZones, blockedZones)
+        } else {
+            LocateResult(emptyList(), false)
+        }
+
+        // Local bloqueado com coordenada: endereco com numero (ou ponto de referencia) a ate 150 m dele
+        if (config.blockedPlaces.any { it.lat != null }) {
+            val near = located.fixes
+                .filter { it.precision == FixPrecision.NUMBER || (it.precision == FixPrecision.AREA && parts.poi != null && !parts.hasStreet) }
+                .firstNotNullOfOrNull { f -> BlockedMatcher.nearPlace(f.lat, f.lng, config.blockedPlaces) }
+            if (near != null) {
+                return AreaVerdict(AreaVerdictKind.OUTSIDE, "Perto de ${near.term} (bloqueado)", explicitBlocked = true)
+            }
+        }
+
+        return LocationRules.decide(
+            parts, street, located.fixes, allowedZones, blockedZones, driverEvidence,
+            homonymSuspected = located.homonymSuspected
+        )
+    }
+
+    private fun keysFor(cacheKey: String, names: List<String>): List<Pair<StreetKey, String>> {
+        return synchronized(streetKeyCache) {
+            streetKeyCache.getOrPut(cacheKey) {
+                names.mapNotNull { n -> AddressParser.streetKeyOf(n)?.let { it to n } }
+            }
+        }
+    }
+
+    private fun streetEvidence(parts: AddressParts, config: FilterConfig, allowedZones: List<MapZone>): StreetEvidence {
+        val key = parts.street ?: return StreetEvidence(StreetKnowledge.UNKNOWN)
+
+        // Indices validos (geometria da zona nao mudou desde a varredura)
+        val validIndex = HashMap<Long, ZoneStreetIndex>()
+        for (z in allowedZones) {
+            val idx = config.streetIndex[z.id] ?: continue
+            if (idx.complete && idx.geometryHash == GeoMath.indexKeyFor(z, config.mapZones)) {
+                validIndex[z.id] = idx
+            }
+        }
+
+        // a) Rua INTERNA de alguma zona -> pode aprovar so pelo nome
+        for (z in allowedZones) {
+            val idx = validIndex[z.id] ?: continue
+            val hit = keysFor("i:${z.id}:${idx.builtAtMs}", idx.internalStreets)
+                .firstOrNull { AddressParser.strictMatch(it.first, key) }
+            if (hit != null) return StreetEvidence(StreetKnowledge.INTERNAL, z, hit.second)
+        }
+
+        // b) Ruas que voce marcou como confiaveis pelo historico
+        val trustedHit = keysFor("t:${config.trustedStreets.hashCode()}", config.trustedStreets)
+            .firstOrNull { AddressParser.strictMatch(it.first, key) }
+
+        // c) Ruas que encostam na zona (inclui as de divisa)
+        var touchingZone: MapZone? = null
+        var touchingName: String? = null
+        for (z in allowedZones) {
+            val idx = validIndex[z.id]
+            val names = idx?.touchingStreets ?: z.streetNames
+            val cacheKey = if (idx != null) "x:${z.id}:${idx.builtAtMs}" else "z:${z.id}:${z.streetNames.hashCode()}"
+            val hit = keysFor(cacheKey, names).firstOrNull { AddressParser.looseMatch(it.first, key) }
+            if (hit != null) {
+                touchingZone = z
+                touchingName = hit.second
+                break
+            }
+        }
+        if (touchingZone == null) {
+            val hit = keysFor("g:${config.allowedKeywords.hashCode()}", config.allowedKeywords)
+                .firstOrNull { AddressParser.looseMatch(it.first, key) }
+            if (hit != null) {
+                touchingZone = allowedZones.firstOrNull()
+                touchingName = hit.second
+            }
+        }
+
+        if (trustedHit != null) {
+            return StreetEvidence(StreetKnowledge.TRUSTED, touchingZone ?: allowedZones.firstOrNull(), trustedHit.second)
+        }
+        if (touchingName != null) {
+            return StreetEvidence(StreetKnowledge.TOUCHES, touchingZone, touchingName)
+        }
+
+        // d) Nenhuma lista citou a rua: so e "fora" se TODAS as zonas tem lista confiavel
+        //    (ou, sem zona no mapa, se existe a lista manual de ruas)
+        val everyZoneHasList = if (allowedZones.isEmpty()) {
+            config.allowedKeywords.isNotEmpty()
+        } else {
+            allowedZones.all { validIndex.containsKey(it.id) || it.streetNames.isNotEmpty() }
+        }
+        return if (everyZoneHasList) {
+            StreetEvidence(StreetKnowledge.NOT_IN_ZONE)
+        } else {
+            StreetEvidence(StreetKnowledge.UNKNOWN)
+        }
+    }
+
+    private data class LocateResult(val fixes: List<GeoFix>, val homonymSuspected: Boolean)
+
+    /**
+     * Consulta o Geocoder em PARALELO (rua+numero e rua sem numero, ou POI/bairro; cada uma com e sem
+     * caixa de busca), com orcamento total de ~2,5 s, e valida cada candidato contra o card.
+     * A busca SEM caixa mostra onde a rua realmente fica (ex.: a "Rua Sao Jorge" do card e a de
+     * Campo Grande, nao a da sua zona). Um resultado longe nunca aprova: ele cai fora da area.
+     */
+    private suspend fun locate(
+        parts: AddressParts,
+        allowedZones: List<MapZone>,
+        blockedZones: List<MapZone>
+    ): LocateResult {
+        val zones = allowedZones + blockedZones
+        val ctx = context ?: return LocateResult(emptyList(), false)
+        if (!Geocoder.isPresent()) return LocateResult(emptyList(), false)
+
+        val queries = buildList {
+            if (parts.hasStreet) {
+                parts.canonicalQuery(withNumber = true)?.let { add(it) }
+                if (parts.hasNumber) parts.canonicalQuery(withNumber = false)?.let { add(it) }
+            } else {
+                add(parts.placeQuery())
+            }
+        }.distinct()
+        if (queries.isEmpty()) return LocateResult(emptyList(), false)
+
+        val bounds = computeZoneBoundingBox(zones)
+        // Bairro do card sozinho (resultado vai pro cache: os bairros se repetem o turno inteiro)
+        val bairroQuery = if (parts.hasStreet && parts.bairroRaw != null) {
+            "${parts.bairroRaw}, ${parts.cityRaw ?: "Rio de Janeiro"}, RJ"
+        } else {
+            null
+        }
+        var bairroCandidates: List<GeoCandidate> = emptyList()
+        val candidateLists = coroutineScope {
+            val bairroDeferred = bairroQuery?.let { bq -> async { runCachedGeocode(ctx, bq, null) } }
+            val lists = queries.flatMap { q ->
+                listOfNotNull(
+                    async { runCachedGeocode(ctx, q, bounds) },
+                    if (bounds != null) async { runCachedGeocode(ctx, q, null) } else null
                 )
-            )
-        } else {
-            emptyList()
+            }.awaitAll()
+            bairroCandidates = bairroDeferred?.await().orEmpty()
+            lists
         }
 
-        // Procura primeiro na lista propria de ruas de cada caixa ("MapZone") para preservar qual caixa e dona da rua
-        var matchedZoneByStreet: MapZone? = null
-        var matchedStreet: String? = null
-        for (zone in effectiveAllowedZones) {
-            if (zone.streetNames.isNotEmpty()) {
-                val found = findMatchingStreet(normAddr, normExplicitStreet, coreExplicitStreet, zone.streetNames)
-                if (found != null) {
-                    matchedZoneByStreet = zone
-                    matchedStreet = found
-                    break
+        fun depthToAllowed(lat: Double, lng: Double): Double =
+            GeoMath.bestZoneDepth(lat, lng, allowedZones)?.second ?: Double.NEGATIVE_INFINITY
+
+        val fixes = mutableListOf<GeoFix>()
+        var streetInOtherBairroFar = false
+        for (list in candidateLists) {
+            for (c in list) {
+                if (allowedZones.isNotEmpty() &&
+                    GeoCandidateRules.isSameStreetInOtherBairro(c, parts) &&
+                    depthToAllowed(c.lat, c.lng) < LocationRules.STREET_CONTRADICTION_M
+                ) {
+                    streetInOtherBairroFar = true
+                }
+                val precision = GeoCandidateRules.classify(c, parts) ?: continue
+                if (fixes.none { it.precision == precision && haversineKm(it.lat, it.lng, c.lat, c.lng) < 0.01 }) {
+                    fixes.add(GeoFix(c.lat, c.lng, precision))
                 }
             }
         }
-        if (matchedStreet == null) {
-            matchedStreet = findMatchingStreet(normAddr, normExplicitStreet, coreExplicitStreet, config.allowedKeywords)
+        // O bairro do card fica longe da area? Entao a "rua interna" de mesmo nome e outra rua (homonimo).
+        val bairroHits = bairroCandidates.filter { GeoCandidateRules.isBairroResult(it, parts) }
+        val bairroFar = allowedZones.isNotEmpty() && bairroHits.isNotEmpty() &&
+            bairroHits.all { depthToAllowed(it.lat, it.lng) < -LocationRules.BAIRRO_FAR_M }
+
+        return LocateResult(
+            GeoCandidateRules.applyConsistency(fixes, parts),
+            homonymSuspected = streetInOtherBairroFar || bairroFar
+        )
+    }
+
+    private fun zonesFor(config: FilterConfig): Pair<List<MapZone>, List<MapZone>> {
+        val allowed = config.mapZones.filter { it.mode == ZoneMode.ALLOWED }.ifEmpty {
+            if (config.polygonPoints.size >= 3) {
+                listOf(MapZone(1L, "Zona 1", ZoneMode.ALLOWED, ZoneShape.POLYGON, config.polygonPoints))
+            } else {
+                emptyList()
+            }
         }
+        return allowed to config.mapZones.filter { it.mode == ZoneMode.BLOCKED }
+    }
 
-        if (mentionsTrainStation && normExplicitStreet != null && config.allowedKeywords.size >= 8 && matchedStreet == null) {
-            return ZoneCheckResult(ok = false, reason = "$explicitStreet (fora da área)")
-        }
+    /**
+     * Coordenada de um endereco do card (rua+numero, rua ou ponto de referencia), validada contra o texto.
+     * Usa o mesmo cache do avaliador: o destino da corrida atual normalmente ja foi consultado.
+     */
+    suspend fun pointOf(address: String, config: FilterConfig): Pair<Double, Double>? {
+        if (address.isBlank()) return null
+        val (allowed, blocked) = zonesFor(config)
+        val parts = AddressParser.parse(address)
+        val located = locate(parts, allowed, blocked)
+        val best = located.fixes.minByOrNull { it.precision.ordinal } ?: return null
+        return best.lat to best.lng
+    }
 
-        if (effectiveAllowedZones.isNotEmpty() || blockedZones.isNotEmpty()) {
-            val geocodeTarget = buildStreetPriorityQuery(address, explicitStreet)
-            val queryVariants = buildGeocodeQueryVariants(address, geocodeTarget, explicitStreet)
-            val bounds = computeZoneBoundingBox(effectiveAllowedZones + blockedZones)
-            val candidates = geocodeAddressCandidates(queryVariants, bounds)
+    /**
+     * Acha no mapa um NOME bloqueado (ex.: "caxias shopping") perto das suas zonas: devolve rua, numero e
+     * coordenada para bloquear tambem as outras entradas/nomes do mesmo lugar. Bairro (sem rua) nao conta.
+     */
+    suspend fun resolveBlockedTerm(term: String, config: FilterConfig): BlockedPlace? {
+        val ctx = context ?: return null
+        if (!Geocoder.isPresent()) return null
+        val nt = TextNormalizer.normalize(term).trim()
+        if (nt.length < 4) return null
+        if (AddressParser.parse(term).street != null) return null // nome de rua: nao e um local
+        val (allowed, blocked) = zonesFor(config)
+        val bounds = computeZoneBoundingBox(allowed + blocked) ?: return null
+        val rx = wordRegex(nt)
+        val hit = runCachedGeocode(ctx, term, bounds).firstOrNull { c ->
+            val feature = c.featureName?.trim().orEmpty()
+            val street = c.thoroughfare?.trim().orEmpty()
+            if (feature.isEmpty() || street.isEmpty()) return@firstOrNull false
+            val nf = TextNormalizer.normalize(feature)
+            // "Avenida Beira Mar" / "Rua Doutor Noguchi" sao RUAS, nao locais: so vale nome proprio (shopping, hospital...)
+            val featureIsStreet = AddressParser.streetKeyOf(feature)?.type != null ||
+                nf == TextNormalizer.normalize(street) ||
+                feature.all { it.isDigit() || it == '-' || it == ' ' }
+            !featureIsStreet && rx.containsMatchIn(nf) &&
+                c.lat in bounds.minLat..bounds.maxLat && c.lng in bounds.minLng..bounds.maxLng
+        } ?: return null
+        val street = hit.thoroughfare?.trim().orEmpty()
+        val number = hit.subThoroughfare?.let { Regex("[0-9]{1,5}").find(it)?.value }.orEmpty()
+        return BlockedPlace(term.trim(), street, BlockedMatcher.normNumber(number), hit.lat, hit.lng)
+    }
 
-            if (candidates.isNotEmpty()) {
-                for (coords in candidates) {
-                    for (bZone in blockedZones) {
-                        if (isPointInZone(coords.first, coords.second, bZone, toleranceMeters = 20.0)) {
-                            return ZoneCheckResult(
-                                ok = false,
-                                reason = "Zona Proibida (${bZone.name})",
-                                isExplicitlyBlocked = true
-                            )
+    private suspend fun runCachedGeocode(ctx: Context, query: String, bounds: GeoBounds?): List<GeoCandidate> {
+        val cacheKey = "$query|${bounds?.hashCode() ?: 0}"
+        geoCache.get(cacheKey)?.let { return it }
+        val result = runSingleGeocode(ctx, query, bounds) ?: return emptyList()
+        geoCache.put(cacheKey, result)
+        return result
+    }
+
+    /** @return null quando estourou o tempo/deu erro (nao entra no cache). */
+    private suspend fun runSingleGeocode(
+        ctx: Context,
+        query: String,
+        bounds: GeoBounds?
+    ): List<GeoCandidate>? {
+        val results: List<Address>? = withTimeoutOrNull(GEOCODE_TIMEOUT_MS) {
+            val geocoder = Geocoder(ctx, Locale("pt", "BR"))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                suspendCancellableCoroutine<List<Address>?> { cont ->
+                    val listener = object : Geocoder.GeocodeListener {
+                        override fun onGeocode(addresses: MutableList<Address>) {
+                            if (cont.isActive) cont.resume(addresses)
                         }
+
+                        override fun onError(errorMessage: String?) {
+                            if (cont.isActive) cont.resume(null)
+                        }
+                    }
+                    try {
+                        if (bounds != null) {
+                            geocoder.getFromLocationName(
+                                query, 5,
+                                bounds.minLat, bounds.minLng, bounds.maxLat, bounds.maxLng,
+                                listener
+                            )
+                        } else {
+                            geocoder.getFromLocationName(query, 5, listener)
+                        }
+                    } catch (_: Exception) {
+                        if (cont.isActive) cont.resume(null)
                     }
                 }
-
-                if (effectiveAllowedZones.isNotEmpty()) {
-                    for (coords in candidates) {
-                        val matchedZone = effectiveAllowedZones.firstOrNull { zone ->
-                            isPointInZone(coords.first, coords.second, zone, toleranceMeters = 45.0)
+            } else {
+                withContext(Dispatchers.IO) {
+                    try {
+                        @Suppress("DEPRECATION")
+                        if (bounds != null) {
+                            geocoder.getFromLocationName(
+                                query, 5,
+                                bounds.minLat, bounds.minLng, bounds.maxLat, bounds.maxLng
+                            ).orEmpty()
+                        } else {
+                            geocoder.getFromLocationName(query, 5).orEmpty()
                         }
-                        if (matchedZone != null) {
-                            return ZoneCheckResult(
-                                ok = true,
-                                reason = matchedStreet ?: explicitStreet ?: address.take(28),
-                                matchedZoneId = matchedZone.id,
-                                zoneName = matchedZone.name
-                            )
-                        }
+                    } catch (_: Exception) {
+                        null
                     }
-
-                    // Se a rua consta explicitamente na lista de ruas permitidas gerada pelo mapa (ex: Rua Pirangi),
-                    // aprova preservando a zona dona da rua mesmo se o Geocoder apontou para homonimo distante
-                    if (matchedStreet != null) {
-                        val ownerZone = matchedZoneByStreet ?: effectiveAllowedZones.firstOrNull()
-                        return ZoneCheckResult(
-                            ok = true,
-                            reason = matchedStreet,
-                            matchedZoneId = ownerZone?.id,
-                            zoneName = ownerZone?.name
-                        )
-                    }
-
-                    return ZoneCheckResult(
-                        ok = false,
-                        reason = explicitStreet ?: address.take(30)
-                    )
                 }
             }
         }
-
-        return if (matchedStreet != null) {
-            val ownerZone = matchedZoneByStreet ?: effectiveAllowedZones.firstOrNull()
-            ZoneCheckResult(
-                ok = true,
-                reason = matchedStreet,
-                matchedZoneId = ownerZone?.id,
-                zoneName = ownerZone?.name
+        return results?.map { a ->
+            GeoCandidate(
+                lat = a.latitude,
+                lng = a.longitude,
+                thoroughfare = a.thoroughfare,
+                subThoroughfare = a.subThoroughfare,
+                featureName = a.featureName,
+                subLocality = a.subLocality,
+                locality = a.locality,
+                subAdminArea = a.subAdminArea,
+                adminArea = a.adminArea,
+                addressLine = runCatching { a.getAddressLine(0) }.getOrNull()
             )
-        } else {
-            ZoneCheckResult(ok = false, reason = explicitStreet ?: address.take(30))
         }
     }
 
@@ -598,7 +900,7 @@ class AreaEvaluator(private val context: Context? = null) {
     }
 
     private fun evaluateAvBrasilSide(rawAddress: String, normAddr: String): String? {
-        if (mareSideIndicators.any { normAddr.contains(it) }) {
+        if (mareSideIndicators.any { it.containsMatchIn(normAddr) }) {
             return "Av. Brasil (Lado Maré)"
         }
 
@@ -618,84 +920,11 @@ class AreaEvaluator(private val context: Context? = null) {
             return "Av. Brasil (Passarela s/ nº ímpar)"
         }
 
-        if (bonsucessoSideIndicators.none { normAddr.contains(it) }) {
+        if (bonsucessoSideIndicators.none { it.containsMatchIn(normAddr) }) {
             return "Av. Brasil s/ nº ímpar (${rawAddress.take(20)})"
         }
 
         return null
-    }
-
-    private fun extractExplicitStreetSegment(address: String): String? {
-        val parts = address.split(",", " - ")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-
-        for (part in parts) {
-            val norm = TextNormalizer.normalize(part)
-            if (streetPrefixRegex.matches(norm) && !norm.startsWith("estacao")) {
-                return part
-            }
-        }
-        return null
-    }
-
-    private fun buildStreetPriorityQuery(fullAddress: String, explicitStreet: String?): String {
-        if (explicitStreet == null) return fullAddress
-        val idx = fullAddress.indexOf(explicitStreet, ignoreCase = true)
-        return if (idx > 0) {
-            fullAddress.substring(idx).trim()
-        } else {
-            fullAddress
-        }
-    }
-
-    private fun expandStreetAbbreviations(raw: String): String {
-        return raw
-            .replace(Regex("""\bR\.\s*""", RegexOption.IGNORE_CASE), "Rua ")
-            .replace(Regex("""\bAv\.\s*""", RegexOption.IGNORE_CASE), "Avenida ")
-            .replace(Regex("""\bEstr\.\s*""", RegexOption.IGNORE_CASE), "Estrada ")
-            .replace(Regex("""\bTv\.\s*""", RegexOption.IGNORE_CASE), "Travessa ")
-            .replace(Regex("""\bP[çc]a?\.\s*""", RegexOption.IGNORE_CASE), "Praça ")
-            .replace(Regex("""\bDr\.\s*""", RegexOption.IGNORE_CASE), "Doutor ")
-            .replace(Regex("""\bDra\.\s*""", RegexOption.IGNORE_CASE), "Doutora ")
-            .replace(Regex("""\bSrg\.\s*""", RegexOption.IGNORE_CASE), "Sargento ")
-            .replace(Regex("""\bCel\.\s*""", RegexOption.IGNORE_CASE), "Coronel ")
-            .replace(Regex("""\bBrg\.\s*""", RegexOption.IGNORE_CASE), "Brigadeiro ")
-            .replace(Regex("""\bGen\.\s*""", RegexOption.IGNORE_CASE), "General ")
-            .replace(Regex("""\bCmte\.\s*""", RegexOption.IGNORE_CASE), "Comandante ")
-            .replace(Regex("""\bPres\.\s*""", RegexOption.IGNORE_CASE), "Presidente ")
-            .replace(" - ", ", ")
-            .replace(Regex("""\s+"""), " ")
-            .trim()
-    }
-
-    private fun buildGeocodeQueryVariants(
-        fullAddress: String,
-        geocodeTarget: String,
-        explicitStreet: String?
-    ): List<String> {
-        val list = LinkedHashSet<String>()
-        val expandedTarget = expandStreetAbbreviations(geocodeTarget)
-        val expandedFull = expandStreetAbbreviations(fullAddress)
-        val suffixRj = if (TextNormalizer.normalize(expandedTarget).contains("rio de janeiro") ||
-            TextNormalizer.normalize(expandedTarget).contains("duque de caxias")
-        ) "" else ", Rio de Janeiro, RJ"
-
-        if (expandedTarget.isNotBlank()) {
-            list.add("$expandedTarget$suffixRj")
-            // Variante sem numero da casa (util p/ pracas e POIs: "Praca Doutor Waldir da Mota, Olaria, Rio de Janeiro")
-            val withoutHouseNum = expandedTarget.replace(Regex(""",\s*\d+[A-Za-z]?\s*(?:,|$)"""), ", ").replace(Regex(""",\s*,"""), ",").trim().trimEnd(',')
-            if (withoutHouseNum.isNotBlank() && withoutHouseNum != expandedTarget) {
-                list.add("$withoutHouseNum$suffixRj")
-            }
-        }
-        if (explicitStreet != null && suffixRj.isNotEmpty()) {
-            list.add("${expandStreetAbbreviations(explicitStreet)}$suffixRj")
-        }
-        if (expandedFull.isNotBlank() && expandedFull != expandedTarget) {
-            list.add("$expandedFull$suffixRj")
-        }
-        return list.toList()
     }
 
     private data class GeoBounds(val minLat: Double, val minLng: Double, val maxLat: Double, val maxLng: Double)
@@ -725,81 +954,18 @@ class AreaEvaluator(private val context: Context? = null) {
             }
         }
         if (!minLat.isFinite() || !maxLat.isFinite()) return null
-        val pad = 0.025 // ~2.8 km ao redor da zona desenhada
+        // ~9 km ao redor: grande o bastante para o Geocoder devolver o lugar REAL (e nao um homonimo
+        // "forcado" para dentro da caixa); o que cair fora da zona e tratado como fora.
+        val pad = 0.08
         return GeoBounds(minLat - pad, minLng - pad, maxLat + pad, maxLng + pad)
     }
 
-    private suspend fun geocodeAddressCandidates(
-        queries: List<String>,
-        bounds: GeoBounds?
-    ): List<Pair<Double, Double>> {
-        for (query in queries) {
-            geoCache.get(query)?.let { if (it.isNotEmpty()) return it }
-
-            val boundedPairs = runSingleGeocode(query, bounds)
-            if (boundedPairs.isNotEmpty()) {
-                geoCache.put(query, boundedPairs)
-                return boundedPairs
-            }
-            if (bounds != null) {
-                val unboundedPairs = runSingleGeocode(query, null)
-                if (unboundedPairs.isNotEmpty()) {
-                    geoCache.put(query, unboundedPairs)
-                    return unboundedPairs
-                }
-            }
-        }
-        return emptyList()
-    }
-
-    private suspend fun runSingleGeocode(
-        query: String,
-        bounds: GeoBounds?
-    ): List<Pair<Double, Double>> {
-        val results = withTimeoutOrNull(1800L) {
-            val safeContext = context ?: return@withTimeoutOrNull emptyList()
-            val geocoder = Geocoder(safeContext, Locale("pt", "BR"))
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                suspendCancellableCoroutine<List<Address>> { cont ->
-                    try {
-                        if (bounds != null) {
-                            geocoder.getFromLocationName(
-                                query, 5,
-                                bounds.minLat, bounds.minLng, bounds.maxLat, bounds.maxLng
-                            ) { addresses ->
-                                if (cont.isActive) cont.resume(addresses)
-                            }
-                        } else {
-                            geocoder.getFromLocationName(query, 5) { addresses ->
-                                if (cont.isActive) cont.resume(addresses)
-                            }
-                        }
-                    } catch (_: Exception) {
-                        if (cont.isActive) cont.resume(emptyList())
-                    }
-                }
-            } else {
-                withContext(Dispatchers.IO) {
-                    try {
-                        @Suppress("DEPRECATION")
-                        if (bounds != null) {
-                            geocoder.getFromLocationName(
-                                query, 5,
-                                bounds.minLat, bounds.minLng, bounds.maxLat, bounds.maxLng
-                            ).orEmpty()
-                        } else {
-                            geocoder.getFromLocationName(query, 5).orEmpty()
-                        }
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                }
-            }
-        }.orEmpty()
-        return results.map { it.latitude to it.longitude }
-    }
-
     companion object {
+        private const val GEOCODE_TIMEOUT_MS = 2400L
+
+        internal fun wordRegex(normalizedTerm: String): Regex =
+            Regex("""(^|[^a-z0-9])""" + Regex.escape(normalizedTerm) + """($|[^a-z0-9])""")
+
         /**
          * Calcula a menor distancia aproximada (borda a borda, em km) entre duas zonas permitidas diferentes,
          * para validar se o KM Total Maximo configurado permite viajar de uma zona para outra.
@@ -847,17 +1013,7 @@ class AreaEvaluator(private val context: Context? = null) {
             zone: MapZone,
             toleranceMeters: Double = 25.0
         ): Boolean {
-            return when (zone.shape) {
-                ZoneShape.CIRCLE -> {
-                    if (zone.centerLat == 0.0 && zone.centerLng == 0.0) return false
-                    val distMeters = haversineKm(lat, lng, zone.centerLat, zone.centerLng) * 1000.0
-                    distMeters <= (zone.radiusMeters + toleranceMeters)
-                }
-
-                ZoneShape.POLYGON -> {
-                    isPointInOrNearPolygon(lat, lng, zone.points, toleranceMeters)
-                }
-            }
+            return GeoMath.depthMeters(lat, lng, zone) >= -toleranceMeters
         }
 
         fun isPointInOrNearPolygon(
@@ -867,36 +1023,7 @@ class AreaEvaluator(private val context: Context? = null) {
             toleranceMeters: Double = 25.0
         ): Boolean {
             if (polygon.size < 3) return false
-            if (isPointInPolygon(lat, lng, polygon)) return true
-
-            val toleranceKm = toleranceMeters / 1000.0
-            for (pt in polygon) {
-                if (haversineKm(lat, lng, pt.first, pt.second) <= toleranceKm) {
-                    return true
-                }
-            }
-            return false
-        }
-
-        private fun isPointInPolygon(
-            lat: Double,
-            lng: Double,
-            polygon: List<Pair<Double, Double>>
-        ): Boolean {
-            var inside = false
-            var j = polygon.size - 1
-            for (i in polygon.indices) {
-                val yi = polygon[i].first
-                val xi = polygon[i].second
-                val yj = polygon[j].first
-                val xj = polygon[j].second
-
-                val intersect = ((yi > lat) != (yj > lat)) &&
-                    (lng < (xj - xi) * (lat - yi) / (yj - yi + 1e-12) + xi)
-                if (intersect) inside = !inside
-                j = i
-            }
-            return inside
+            return GeoMath.polygonDepthMeters(lat, lng, polygon) >= -toleranceMeters
         }
 
         fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

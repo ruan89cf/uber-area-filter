@@ -16,7 +16,10 @@ import androidx.lifecycle.lifecycleScope
 import com.ruan.uberareafilter.engine.AreaEvaluator
 import com.ruan.uberareafilter.engine.TextNormalizer
 import com.ruan.uberareafilter.map.OpenFreeMapStreetFetcher
+import com.ruan.uberareafilter.map.StreetIndexRefresher
 import com.ruan.uberareafilter.model.MapZone
+import com.ruan.uberareafilter.overlay.CardPalette
+import com.ruan.uberareafilter.service.DriverLocationProvider
 import com.ruan.uberareafilter.model.ZoneMode
 import com.ruan.uberareafilter.model.ZoneShape
 import com.ruan.uberareafilter.storage.ConfigRepository
@@ -52,6 +55,17 @@ class MapAreaActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     val config = repository.load()
+                    val paletteJson = JSONArray().apply {
+                        CardPalette.ZONE_COLORS.forEach { (name, hex) ->
+                            put(org.json.JSONObject().put("name", name).put("hex", hex))
+                        }
+                    }.toString()
+                    evaluateJavascript(
+                        "setZoneColorConfig(${config.zoneCardColorsEnabled}, '$paletteJson', '${CardPalette.DEFAULT_ZONE_COLOR}');",
+                        null
+                    )
+                    // Sem zonas ainda: ja abre o mapa onde o motorista esta
+                    pushDriverLocation(center = config.mapZones.isEmpty() && config.polygonPoints.isEmpty(), silent = true)
                     if (config.mapZones.isNotEmpty()) {
                         val zonesJson = repository.serializeMapZones(config.mapZones).toString()
                             .replace("\\", "\\\\")
@@ -71,7 +85,51 @@ class MapAreaActivity : AppCompatActivity() {
         webView.loadUrl("file:///android_asset/map_picker.html")
     }
 
+    private fun pushDriverLocation(center: Boolean, silent: Boolean) {
+        val fix = DriverLocationProvider.current(applicationContext)
+        if (fix == null) {
+            if (!silent) {
+                Toast.makeText(this, "Localização indisponível (ligue o GPS e permita a localização).", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        webView.evaluateJavascript(
+            String.format(Locale.US, "setDriverLocation(%.6f, %.6f, %b);", fix.lat, fix.lng, center),
+            null
+        )
+    }
+
+    private fun jsString(raw: String): String =
+        org.json.JSONObject.quote(raw)
+
     inner class MapBridge {
+        @JavascriptInterface
+        fun requestDriverLocation() {
+            runOnUiThread { pushDriverLocation(center = true, silent = false) }
+        }
+
+        /** Busca de endereco pelo Geocoder do proprio Android (mesmo usado no filtro), priorizando perto das zonas. */
+        @JavascriptInterface
+        fun searchAddress(query: String) {
+            lifecycleScope.launch {
+                val hit = withContext(Dispatchers.IO) {
+                    runCatching {
+                        @Suppress("DEPRECATION")
+                        Geocoder(this@MapAreaActivity, Locale("pt", "BR")).getFromLocationName(query, 1)?.firstOrNull()
+                    }.getOrNull()
+                }
+                if (hit == null) {
+                    webView.evaluateJavascript("onSearchFailed('Nada encontrado para essa busca.');", null)
+                } else {
+                    val label = hit.getAddressLine(0) ?: query
+                    webView.evaluateJavascript(
+                        String.format(Locale.US, "onSearchResult(%.6f, %.6f, %s);", hit.latitude, hit.longitude, jsString(label)),
+                        null
+                    )
+                }
+            }
+        }
+
         @JavascriptInterface
         fun onError(msg: String) {
             runOnUiThread {
@@ -113,7 +171,25 @@ class MapAreaActivity : AppCompatActivity() {
         processZonesList(zones)
     }
 
-    private fun processZonesList(zones: List<MapZone>) {
+    private fun processZonesList(rawZones: List<MapZone>) {
+        val previous = repository.load()
+        val previousById = previous.mapZones.associateBy { it.id }
+        // Mantem a cor ja escolhida de cada zona (caso o mapa nao devolva o campo)
+        val zones = rawZones.map { z ->
+            if (z.cardColorHex.isBlank()) z.copy(cardColorHex = previousById[z.id]?.cardColorHex.orEmpty()) else z
+        }
+        val allowed = zones.filter { it.mode == ZoneMode.ALLOWED }
+        // Zona ADICIONAL nova (a 1a zona permitida fica com a cor normal "dentro da area")
+        // So pergunta pelas novas que ficaram sem cor (no mapa a cor ja pode ser escolhida no editor da zona)
+        val newAdditional = allowed.drop(1).filter { it.id !in previousById && it.cardColorHex.isBlank() }.map { it.id }
+        if (previous.zoneCardColorsEnabled && newAdditional.isNotEmpty()) {
+            ZoneColorEditor.edit(this, zones, newAdditional) { colored -> saveZonesAndScan(colored) }
+        } else {
+            saveZonesAndScan(zones)
+        }
+    }
+
+    private fun saveZonesAndScan(zones: List<MapZone>) {
         val primaryPolygon = zones
             .firstOrNull { it.mode == ZoneMode.ALLOWED && it.shape == ZoneShape.POLYGON && it.points.size >= 3 }
             ?.points
@@ -136,12 +212,32 @@ class MapAreaActivity : AppCompatActivity() {
         ).show()
 
         lifecycleScope.launch {
-            val streetsPerZone = if (allowedZones.isNotEmpty()) {
+            // 1) Indice de ruas INTERNAS x de DIVISA (base para aprovar so pelo nome com seguranca)
+            val indexOutcome = if (allowedZones.isNotEmpty()) {
+                StreetIndexRefresher.refresh(repository, force = true)
+            } else {
+                null
+            }
+            val allowedIds = allowedZones.map { it.id }.toSet()
+            val streetsPerZone: Map<Long, List<String>> = if (indexOutcome != null) {
+                repository.loadStreetIndex()
+                    .filterKeys { it in allowedIds }
+                    .mapValues { it.value.touchingStreets }
+                    .filterValues { it.isNotEmpty() }
+            } else if (allowedZones.isNotEmpty()) {
                 withTimeoutOrNull(18000L) {
                     OpenFreeMapStreetFetcher.fetchStreetsPerZone(allowedZones)
                 }.orEmpty()
             } else {
                 emptyMap()
+            }
+            if (indexOutcome != null) {
+                val msg = if (indexOutcome.complete) {
+                    "Mapa analisado: ${indexOutcome.internalStreets} ruas internas • ${indexOutcome.touchingStreets - indexOutcome.internalStreets} de divisa"
+                } else {
+                    "Mapa analisado parcialmente (internet fraca). Ruas de divisa vão exigir número."
+                }
+                Toast.makeText(this@MapAreaActivity, msg, Toast.LENGTH_LONG).show()
             }
 
             val streets = if (streetsPerZone.isNotEmpty()) {

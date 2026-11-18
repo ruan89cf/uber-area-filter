@@ -1,27 +1,23 @@
-# Filtro de Área Uber (Android / Kotlin)
+# Filtro Inteligente (99 Motorista e Uber Driver)
 
-Aplicativo Android pessoal que utiliza `AccessibilityService` para ler ofertas de corrida no app **Uber Driver** (`com.ubercab.driver`), verificar se o destino/trajeto está dentro da área configurada e:
-- **Dentro da área:** exibe um banner verde na tela e deixa você decidir se aceita ou não.
-- **Fora da área:** recusa automaticamente a corrida (quando a opção de auto-recusa está ativada) e registra no log.
+App Android em Kotlin que lê as ofertas de corrida da 99 e da Uber pela Acessibilidade e aplica as suas regras: área demarcada no mapa, ganho por hora, distância, passageiro e combustível. Ofertas dentro dos critérios podem ser aceitas sozinhas; as de fora, recusadas.
 
-## Como abrir e compilar no Android Studio
+## Instalar e configurar
 
-1. Abra o **Android Studio** -> **File > Open** e selecione a pasta `uber-area-filter`.
-2. Aguarde o Gradle sincronizar as dependências.
-3. Conecte seu celular Android (com **Depuração USB** ativada) ou gere o APK em **Build > Build Bundle(s) / APK(s) > Build APK(s)** e instale no aparelho.
+Veja **[GUIA_INSTALACAO.md](GUIA_INSTALACAO.md)**, escrito para quem nunca mexeu em modo desenvolvedor. No app, o **Assistente de configuração** mostra o estado real de cada recurso e abre a tela certa para cada passo.
 
-## Como configurar no celular (passo a passo)
+## Scripts (Windows)
 
-1. Abra o app **Filtro de Área Uber**.
-2. Toque em **Acessibilidade** -> encontre **Filtro de Área Uber** -> ative.
-   - *Nota (Android 13+):* se o sistema bloquear por "Configuração restrita", vá em **Configurações > Apps > Filtro de Área Uber > menu (⋮) > Permitir configurações restritas**, depois volte e ative na Acessibilidade.
-3. Toque em **Sobrepor Tela** e permita exibir sobre outros apps (para o banner verde/vermelho).
-4. Configure sua área de duas formas (pode usar uma ou as duas juntas):
-   - **Lista de Bairros / Regiões permitidas:** digite os bairros/cidades que você aceita (ex: `Pinheiros, Vila Madalena, Paulista`).
-   - **Raio Geográfico (opcional):** ative a chave, digite um endereço/bairro central, toque em **Buscar coordenadas do centro** e defina o raio em km.
-5. **Teste primeiro sem auto-recusa:** deixe **Recusar automaticamente** desligado e ative o **Modo diagnóstico** para confirmar no log que os textos e o botão de recusa da sua versão do Uber Driver estão sendo lidos corretamente. Depois ative a auto-recusa.
+| Script | O que faz |
+|---|---|
+| `instalar_no_celular.bat` | Compila, instala pelo cabo USB e já libera pelo cabo as permissões que dispensam passos no celular |
+| `gerar_apk_para_enviar.bat` | Gera `apk_para_enviar\FiltroInteligente.apk` e o texto `COMO_INSTALAR.txt` para mandar a outros motoristas |
+| `aplicar_melhorias_area.bat` | Copia os fontes novos de `_melhorias_area` para `app\src` |
 
-## Aviso importante
+A assinatura do APK fica em `keystore.properties` e `release-key.jks` (fora do git). Gere sempre com a mesma assinatura, para que as atualizações instalem por cima.
 
-- Funciona apenas em **Android** (o iOS não permite que um app leia a tela ou clique em outro app).
-- O uso de automação de cliques no app da Uber pode violar os Termos de Uso da plataforma; use com moderação e sempre teste primeiro apenas com o aviso visual.
+## Avisos
+
+- Só funciona no Android: o iPhone não permite que um app leia a tela de outro.
+- Automatizar toques na Uber ou na 99 pode contrariar os termos de uso das plataformas. Teste primeiro só com o aviso visual (aceite e recusa automáticos desligados).
+- Decisões técnicas: `DECISOES_MELHORIAS_AREA.md` (demarcação de área) e `DESIGN_VISUAL.md` (visual).

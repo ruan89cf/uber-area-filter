@@ -3,32 +3,42 @@
 
     <!-- ===== Texto ===== -->
 
+    <!--
+        Tipografia: títulos em SERIFA (Noto Serif, já presente no Android) para o ar editorial e calmo;
+        controles, números e textos de apoio em sans-serif (Roboto), que lê melhor em tamanho pequeno.
+        Números de campos usam algarismos de largura fixa (tnum) para não "pularem".
+    -->
+
     <!-- Rótulo de grupo em caixa alta: "SEGURANÇA", "RENTABILIDADE"... -->
     <style name="TextAppearance.Filtro.Overline" parent="TextAppearance.Material3.LabelMedium">
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">11sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:letterSpacing">0.12</item>
+        <item name="android:letterSpacing">0.08</item>
         <item name="android:textAllCaps">true</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
     </style>
 
     <!-- Frase de abertura de uma tela -->
     <style name="TextAppearance.Filtro.Headline" parent="TextAppearance.Material3.HeadlineSmall">
         <item name="android:textSize">26sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">serif</item>
         <item name="android:letterSpacing">-0.01</item>
         <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
     <!-- Título de um item dentro de um card -->
     <style name="TextAppearance.Filtro.ItemTitle" parent="TextAppearance.Material3.TitleMedium">
-        <item name="android:textSize">16sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">17sp</item>
+        <item name="android:fontFamily">serif</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:letterSpacing">0</item>
         <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
     <!-- Texto de apoio -->
     <style name="TextAppearance.Filtro.Body" parent="TextAppearance.Material3.BodyMedium">
         <item name="android:textSize">14sp</item>
+        <item name="android:lineSpacingExtra">2dp</item>
         <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
     </style>
 
@@ -51,7 +61,7 @@
 
     <style name="ShapeAppearance.Filtro.Card" parent="">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">20dp</item>
+        <item name="cornerSize">18dp</item>
     </style>
 
     <style name="ShapeAppearance.Filtro.Logo" parent="">
@@ -103,7 +113,7 @@
     <!-- Switch do liga/desliga geral -->
     <style name="Widget.Filtro.Switch.Hero" parent="Widget.Filtro.Switch">
         <item name="android:textSize">19sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">serif</item>
         <item name="android:textColor">?attr/colorOnPrimaryContainer</item>
     </style>
 
@@ -117,6 +127,14 @@
     </style>
 
     <!-- Campo numérico curto ao lado de um switch (R$/h, km, nota) -->
+    <!-- Texto digitado nos campos numéricos: médio e com algarismos de largura fixa -->
+    <style name="TextAppearance.Filtro.NumberInput" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
     <style name="Widget.Filtro.NumberField" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">
         <item name="boxCornerRadiusTopStart">12dp</item>
         <item name="boxCornerRadiusTopEnd">12dp</item>
@@ -180,7 +198,14 @@
     </style>
 
     <!-- Barra inferior de abas -->
+    <!-- Atalhos de seção no topo de cada aba (criados pelo SectionTabsLayout) -->
+    <style name="TextAppearance.Filtro.NavLabel" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textSize">12sp</item>
+    </style>
+
     <style name="Widget.Filtro.BottomNav" parent="Widget.Material3.BottomNavigationView">
+        <item name="itemTextAppearanceActive">@style/TextAppearance.Filtro.NavLabel</item>
+        <item name="itemTextAppearanceInactive">@style/TextAppearance.Filtro.NavLabel</item>
         <item name="backgroundTint">?attr/colorSurface</item>
         <item name="elevation">0dp</item>
         <item name="labelVisibilityMode">labeled</item>
@@ -191,6 +216,67 @@
 
     <style name="Widget.Filtro.BottomNav.Indicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
         <item name="android:color">?attr/colorPrimaryContainer</item>
+    </style>
+
+    <!-- ===== Reforma visual 1.6 ===== -->
+
+    <!-- Atalho "Ganhos" no topo: pílula âmbar (dinheiro) com ícone -->
+    <style name="Widget.Filtro.Button.TopAction" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:minHeight">40dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:textSize">13.5sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:textColor">@color/acc_amber_on</item>
+        <item name="backgroundTint">@color/acc_amber_container</item>
+        <item name="iconTint">@color/acc_amber_on</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">6dp</item>
+        <item name="cornerRadius">20dp</item>
+    </style>
+
+    <!-- Atalho só com ícone no topo (Novidades) -->
+    <style name="Widget.Filtro.Button.TopIcon" parent="Widget.Material3.Button.IconButton.Filled.Tonal">
+        <item name="backgroundTint">@color/acc_violet_container</item>
+        <item name="iconTint">@color/acc_violet_on</item>
+        <item name="iconSize">20dp</item>
+    </style>
+
+    <!-- Botão branco translúcido sobre o degradê do cartão principal -->
+    <style name="Widget.Filtro.Button.OnHero" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:minHeight">44dp</item>
+        <item name="android:textColor">@color/hero_text</item>
+        <item name="backgroundTint">#33FFFFFF</item>
+        <item name="iconTint">@color/hero_text</item>
+        <item name="iconSize">18dp</item>
+        <item name="cornerRadius">22dp</item>
+    </style>
+
+    <!-- Transição entre telas: a nova desliza um pouco e aparece; ao voltar, o contrário -->
+    <style name="Filtro.ScreenAnim" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/screen_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/screen_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/screen_pop_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/screen_pop_exit</item>
+    </style>
+
+    <!-- Folha de ajuda ("?"): cantos grandes -->
+    <style name="ThemeOverlay.Filtro.HelpSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.Filtro.HelpSheet</item>
+    </style>
+    <style name="Widget.Filtro.HelpSheet" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.Filtro.Sheet</item>
+        <item name="backgroundTint">?attr/colorSurface</item>
+    </style>
+    <style name="ShapeAppearance.Filtro.Sheet" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">28dp</item>
+        <item name="cornerSizeTopRight">28dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
     </style>
 
 </resources>

@@ -13,3 +13,18 @@ local.properties
 _fontes_espelho/
 build_log.txt
 _backup_visual_anterior/
+
+# Assinatura do APK (nunca versionar)
+*.jks
+*.keystore
+keystore.properties
+_melhorias_area/
+_backup_antes_melhorias_area/
+
+# Gerados pelos scripts
+apk_para_enviar/
+_backup_antes_design/
+_backup_antes_instalacao/
+
+# Registros baixados do celular (tem enderecos das corridas)
+logs_celular/

@@ -40,7 +40,24 @@ data class ParsedRideOffer(
     val hasMultipleStops: Boolean = false,
     val stopsCount: Int = 0,
     val isCancelledScreen: Boolean = false,
-    val isIdleHomeScreen: Boolean = false
+    val isIdleHomeScreen: Boolean = false,
+    /** Quando o preco nao foi lido: R$/hora do card x minutos estimados (so para o painel de Ganhos). */
+    val estimatedPrice: Double? = null,
+    /** Minutos lidos nos trechos do card ("6 min (2,7 km)"), sem correcao. */
+    val pickupMinutes: Double? = null,
+    val dropoffMinutes: Double? = null,
+    /** Corrida "Negocia" da 99: o passageiro propos o valor e o motorista pode pedir mais. */
+    val isNegotiable: Boolean = false,
+    /** Valores sugeridos pela 99 para a contraproposta (ex: R$22,19 / R$23,24 / R$24,30). */
+    val counterOfferPrices: List<Double> = emptyList(),
+    /** Onde fica o lapis da Negocia (4o botao da fileira de valores sugeridos). */
+    val counterOfferPencilTap: Pair<Float, Float>? = null,
+    /** Tela "Sua oferta" (lapis da Negocia aberto, teclado na tela). */
+    val isCounterOfferEditor: Boolean = false,
+    /** Valor que aparece no campo da tela "Sua oferta" (pode ser so a dica cinza com o valor do passageiro). */
+    val editorValue: Double? = null,
+    val editorPlusTap: Pair<Float, Float>? = null,
+    val editorConfirmTap: Pair<Float, Float>? = null
 )
 
 /**
@@ -81,6 +98,13 @@ object RideOfferParser {
         "/km •",
         "de gasolina",
         "de etanol",
+        "trava liberada",
+        "aceitar se tocar",
+        "aceito se tocar",
+        "voce liberou",
+        "depois da 99",
+        "depois da uber",
+        "encaixe apos",
         "de gnv",
         "de diesel",
         "de energia",
@@ -94,7 +118,11 @@ object RideOfferParser {
         "emb:",
         "dest:",
         "bloqueado:",
-        "permitida "
+        "permitida ",
+        // card da Negocia ("Negocie: peca 24,30", "VOCE NEGOCIA", "NEGOCIANDO") - nunca ler como texto da 99
+        "negocie",
+        "voce negocia",
+        "negociando"
     )
     private val ownOverlayMarkers = COMMON_OWN_OVERLAY_MARKERS
     private val ratingScreenHints = listOf(
@@ -117,14 +145,32 @@ object RideOfferParser {
         "em viagem",
         "chegada prevista",
         "a caminho do passageiro",
-        "aguardando passageiro"
+        "aguardando passageiro",
+        // 99 (18/11): card logo depois do aceite e painel "Mais" da corrida em andamento (prints 59133-59135)
+        "corrida aceita",
+        "cancelar corrida",
+        "recusar novas corridas",
+        // fim da viagem: "Vanessa chegou ao seu destino?"
+        "chegou ao seu destino"
+    )
+    private val activeRideNegations = listOf(
+        "outro motorista",
+        "outro parceiro",
+        "por outro",
+        "mais disponivel",
+        "indisponivel"
     )
     private val cancelledHints = listOf(
         "usuario cancelou",
         "passageiro cancelou",
         "corrida cancelada",
         "viagem cancelada",
-        "solicitacao cancelada"
+        "solicitacao cancelada",
+        // Cancelamento feito pelo MOTORISTA (17/11 20:36: "Voce cancelou a corrida antes de chegar ao local de embarque")
+        "voce cancelou a corrida",
+        "voce cancelou a viagem",
+        "corrida foi cancelada",
+        "viagem foi cancelada"
     )
     private val nineNineIdleHomeHints = listOf(
         "recompensas",
@@ -176,6 +222,16 @@ object RideOfferParser {
         )
     }
 
+    /** Titulo do aviso da 99, tolerante a ruido de OCR ("SeaUIdas", "solicitacÕes"). */
+    internal fun isContinuePromptTitle(norm: String): Boolean =
+        norm.contains("solicitac") && norm.contains("recusadas") &&
+            (norm.contains("varias") || norm.contains("seguidas"))
+
+    /** Botao "Continuar aceitando solicitacoes" (OCR as vezes corta o fim da linha). */
+    internal fun isContinueButtonText(norm: String): Boolean =
+        norm.contains("continuar aceitando") ||
+            (norm.startsWith("continuar") && norm.contains("solicitac"))
+
     internal fun parseFromOrderedLines(
         sortedLines: List<Pair<String, Rect?>>,
         bitmap: Bitmap?,
@@ -196,6 +252,11 @@ object RideOfferParser {
         var ocrContinueCenter: Pair<Float, Float>? = null
         var continueDetected = false
         var hasPreFilteredUberBanner = false
+        // Negocia: botao "Aceitar por R$X", fileira de valores sugeridos (lapis no fim) e a tela "Sua oferta"
+        var acceptByBox: Rect? = null
+        var counterRowBox: Rect? = null
+        var editorPlusBox: Rect? = null
+        var editorConfirmBox: Rect? = null
 
         for ((rawText, box) in sortedLines) {
             val raw = rawText.trim()
@@ -206,6 +267,20 @@ object RideOfferParser {
                 (uberEstBannerRegex.containsMatchIn(norm) || uberRatingWithCountRegex.containsMatchIn(raw))
             ) {
                 hasPreFilteredUberBanner = true
+            }
+            // Aviso "Varias solicitacoes seguidas recusadas" / botao "Continuar aceitando solicitacoes":
+            // checado ANTES do filtro do nosso card (o marcador "aceitando" do selo ACEITANDO descartava
+            // a linha do botao) e antes do corte de topo (o titulo do aviso fica em ~11% da altura).
+            if (isContinuePromptTitle(norm)) {
+                continueDetected = true
+                continue
+            }
+            if (isContinueButtonText(norm) && (box == null || box.top > screenHeight * 0.55f)) {
+                continueDetected = true
+                if (box != null) {
+                    ocrContinueCenter = box.exactCenterX() to box.exactCenterY()
+                }
+                continue
             }
             if (raw.contains("✔") ||
                 raw.contains("✘") ||
@@ -241,17 +316,20 @@ object RideOfferParser {
 
             texts.add(raw)
 
-            if (currencyRegex.containsMatchIn(raw) || distanceOrTimeRegex.containsMatchIn(raw)) {
-                hasPriceOrDistance = true
+            if (box != null) {
+                if (acceptByBox == null && norm.startsWith("aceitar por")) {
+                    acceptByBox = box
+                } else if (acceptByBox != null && counterRowBox == null && box.top >= acceptByBox.bottom &&
+                    currencyRegex.containsMatchIn(raw)
+                ) {
+                    counterRowBox = box
+                }
+                if (editorPlusBox == null && editorStepPlusRegex.matches(norm)) editorPlusBox = box
+                if (editorConfirmBox == null && norm.contains("confirmar oferta")) editorConfirmBox = box
             }
 
-            if (norm.contains("varias solicitacoes seguidas recusadas")) {
-                continueDetected = true
-            } else if (norm.contains("continuar aceitando solicitacoes") && (box == null || box.top > screenHeight * 0.65f)) {
-                continueDetected = true
-                if (box != null) {
-                    ocrContinueCenter = box.exactCenterX() to box.exactCenterY()
-                }
+            if (currencyRegex.containsMatchIn(raw) || distanceOrTimeRegex.containsMatchIn(raw)) {
+                hasPriceOrDistance = true
             }
 
             if (acceptHints.any { norm == it || norm.startsWith("aceitar") } && !norm.contains("continuar")) {
@@ -278,7 +356,7 @@ object RideOfferParser {
         val fallbackAcceptTap = (screenWidth * 0.50f) to (screenHeight * 0.89f)
         val fallbackContinueTap = (screenWidth * 0.50f) to (screenHeight * 0.835f)
 
-        return buildOfferResult(
+        val result = buildOfferResult(
             texts = texts,
             hasAcceptButton = hasAcceptButton,
             hasPriceOrDistance = hasPriceOrDistance,
@@ -296,6 +374,55 @@ object RideOfferParser {
             continueNode = null,
             continueTapPoint = ocrContinueCenter ?: fallbackContinueTap
         )
+
+        return when {
+            result.isCounterOfferEditor -> result.copy(
+                editorValue = readEditorValue(texts),
+                editorPlusTap = editorPlusBox?.let { centerOf(it) },
+                editorConfirmTap = editorConfirmBox?.let { centerOf(it) }
+            )
+            // Lapis = 4o botao da fileira de valores (prints 59192/59196: X = 87,7% da largura).
+            // Sem a fileira lida, ela fica 6,3% da altura abaixo do centro do "Aceitar por R$X".
+            result.isNegotiable -> {
+                val row = counterRowBox
+                val acc = acceptByBox
+                val pencil = when {
+                    row != null -> (screenWidth * PENCIL_X_FRACTION) to ((row.top + row.bottom) / 2f)
+                    acc != null -> (screenWidth * PENCIL_X_FRACTION) to ((acc.top + acc.bottom) / 2f + screenHeight * 0.063f)
+                    else -> null
+                }
+                result.copy(counterOfferPencilTap = pencil?.takeIf { it.second < screenHeight * 0.97f })
+            }
+            else -> result
+        }
+    }
+
+    internal const val PENCIL_X_FRACTION = 0.877f
+
+    // "+0,5" da tela "Sua oferta" (o OCR as vezes le "+O,5")
+    private val editorStepPlusRegex = Regex("""^\+\s*[0oO]\s*[,.]\s*5$""")
+    // Campo do valor: "R$23,9", "R$ 23,60", "R$|23,60" (cursor) ou so "23,60"
+    private val editorFieldRegex = Regex(
+        """^\s*(?:(?:r\$|rs|\$)\s*)?[|lI!]?\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*[|lI!]?\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun centerOf(box: Rect): Pair<Float, Float> = ((box.left + box.right) / 2f) to ((box.top + box.bottom) / 2f)
+
+    /** Valor do campo da tela "Sua oferta": a linha so com o valor, entre o titulo e "Confirmar oferta". */
+    internal fun readEditorValue(texts: List<String>): Double? {
+        val norms = texts.map { TextNormalizer.normalize(it) }
+        val start = norms.indexOfFirst { it.startsWith("sua oferta") || it.contains("oferta feita pelo passageiro") }
+        if (start < 0) return null
+        val end = norms.indexOfFirst { it.contains("confirmar oferta") }.let { if (it < 0) texts.size else it }
+        for (i in (start + 1) until end) {
+            val line = fixCurrencyOcr(texts[i]).trim()
+            if (line.startsWith("+") || line.startsWith("-") || line.startsWith("–")) continue
+            val m = editorFieldRegex.find(line) ?: continue
+            val v = m.groupValues[1].replace(",", ".").toDoubleOrNull() ?: continue
+            if (v >= 2.0) return v
+        }
+        return null
     }
 
     /**
@@ -738,7 +865,30 @@ object RideOfferParser {
             it.contains("corrida aceita") || it.contains("cheguei no embarque") ||
                 it.contains("finalizar corrida") || it.contains("iniciar corrida")
         }
+        // Corrida "Negocia" da 99: botao "Aceitar por R$X" e, embaixo dele, os valores sugeridos
+        // para pedir mais ("R$22,19 R$23,24" + "R$24,30"; o lapis abre o teclado para digitar outro).
+        val acceptByIdx = normAll.indexOfFirst { it.startsWith("aceitar por") }
+        val isNegotiable = acceptByIdx >= 0 || normAll.any { it.startsWith("moto negocia") }
+        val counterOfferPrices = if (acceptByIdx >= 0) {
+            texts.drop(acceptByIdx + 1)
+                .flatMap { line ->
+                    currencyRegex.findAll(fixCurrencyOcr(line))
+                        .mapNotNull { it.groupValues[2].replace(",", ".").toDoubleOrNull() }
+                        .toList()
+                }
+                .filter { v -> ridePrice == null || (v > ridePrice + 0.009 && v <= ridePrice * 2.0) }
+                .distinct()
+                .sorted()
+                .take(3)
+        } else {
+            emptyList()
+        }
+        // Tela "Sua oferta / Confirmar oferta" (lapis da Negocia, teclado aberto): nunca e oferta para tocar
+        val isCounterOfferEditor = normAll.any {
+            it.contains("confirmar oferta") || it.startsWith("sua oferta") || it.contains("oferta feita pelo passageiro")
+        }
         val isOffer = !hasAcceptedOrActiveBanner &&
+            !isCounterOfferEditor &&
             hasAcceptButton &&
             hasRealCardEvidence &&
             !isTripRadarList &&
@@ -754,12 +904,16 @@ object RideOfferParser {
             null
         }
 
+        // "OK, corrida cancelada" fica fixo no mapa da 99 durante a viagem (atalho de voz): nao e cancelamento
         val isCancelledScreen = !isOffer && !continueDetected && normAll.any { line ->
-            cancelledHints.any { hint -> line.contains(hint) }
+            val clean = TextNormalizer.withoutVoiceCancelShortcut(line)
+            cancelledHints.any { hint -> clean.contains(hint) }
         }
 
         val isInActiveRide = !isOffer && !continueDetected && !isRatingScreen && !isCancelledScreen && normAll.any { line ->
-            activeRideHints.any { hint -> line.contains(hint) }
+            activeRideHints.any { hint -> line.contains(hint) } &&
+                // "Corrida aceita por outro motorista" / "nao esta mais disponivel" nao e corrida sua
+                activeRideNegations.none { line.contains(it) }
         }
 
         val isIdleHomeScreen = !isOffer &&
@@ -824,7 +978,13 @@ object RideOfferParser {
             continueTapPoint = continueTapPoint,
             fingerprint = fingerprint,
             isCancelledScreen = isCancelledScreen,
-            isIdleHomeScreen = isIdleHomeScreen
+            isIdleHomeScreen = isIdleHomeScreen,
+            estimatedPrice = if (ridePrice == null) expectedPrice?.takeIf { it in 3.0..400.0 } else null,
+            pickupMinutes = pickupMinutes,
+            dropoffMinutes = dropoffMinutes,
+            isNegotiable = isOffer && isNegotiable,
+            counterOfferPrices = if (isOffer) counterOfferPrices else emptyList(),
+            isCounterOfferEditor = isCounterOfferEditor && !continueDetected
         )
     }
 
@@ -871,8 +1031,17 @@ object RideOfferParser {
         return price
     }
 
+    private val currencyOcrRegex = Regex("""((?:r\$|rs|\$)\s*)([0-9Oo]{1,4}(?:[.,][0-9Oo]{1,2})?)""", RegexOption.IGNORE_CASE)
+
+    /** "R$ 5O,00" -> "R$ 50,00": O lido no lugar do zero dentro de um valor (so quando ha digitos junto). */
+    internal fun fixCurrencyOcr(line: String): String = currencyOcrRegex.replace(line) { m ->
+        val num = m.groupValues[2]
+        if (num.any { it.isDigit() }) m.groupValues[1] + num.replace('O', '0').replace('o', '0') else m.value
+    }
+
     private fun extractMainRidePriceInfo(texts: List<String>): Pair<Double, Boolean>? {
-        for (line in texts) {
+        for (rawLine in texts) {
+            val line = fixCurrencyOcr(rawLine)
             val norm = TextNormalizer.normalize(line)
             if (norm.contains("/h") || norm.contains("tarifa") || norm.contains("taxa") ||
                 norm.contains("liq") || norm.contains("lucro") || line.contains("•") || line.contains("★")
@@ -932,21 +1101,44 @@ object RideOfferParser {
         val hasRiskBadge: Boolean
     )
 
-    private fun normalizeLegOcrNoise(raw: String): String {
+    // Icone redondo do trecho (verde = embarque, laranja = destino) que o OCR le como letra/simbolo
+    // logo antes dos minutos. Visual novo da 99 (18/11): "O6 min (2,7 km)", "O 4 min", "O6min".
+    private val legIconGluedRegex = Regex("""^\s*[OoQ](?=\d{1,3}\s*min)""", RegexOption.IGNORE_CASE)
+    private val legIconLooseRegex = Regex("""^\s*(?:[A-Za-z]|[^\w\s(]{1,2})\s+(?=\d{1,3}\s*min)""", RegexOption.IGNORE_CASE)
+
+    /** Tira o icone do trecho lido como texto ("O6 min (2,7 km)" -> "6 min (2,7 km)"). */
+    internal fun stripLegIconNoise(raw: String): String {
         var s = raw.trim()
+        s = legIconGluedRegex.replace(s, "")
+        s = legIconLooseRegex.replace(s, "")
+        return s
+    }
+
+    private val legFiveAsSRegex = Regex("""^\s*[Ss]\s*(min(?:uto[s]?)?\s*\()""", RegexOption.IGNORE_CASE)
+
+    private fun normalizeLegOcrNoise(raw: String): String {
+        var s = stripLegIconNoise(raw)
+        // "S min (3,1 km)": o 5 lido como S (so quando e o trecho inteiro "N min (X km)")
+        s = legFiveAsSRegex.replace(s) { m -> "5 ${m.groupValues[1]}" }
         s = s.replace(Regex("""(\d)\s*([.,])\s*(\d)"""), "$1$2$3")
-        s = s.replace(Regex("""\b([0-9Il|!]{1,3})\s*(min(?:uto[s]?)?)""", RegexOption.IGNORE_CASE)) { m ->
+        // Digitos trocados por letras parecidas antes de "min": I/l/|/! -> 1 e O/o -> 0 ("1O min", "l2 min")
+        s = s.replace(Regex("""\b([0-9Il|!Oo]{1,3})\s*(min(?:uto[s]?)?)""", RegexOption.IGNORE_CASE)) { m ->
             val rawNum = m.groupValues[1]
             if (rawNum.any { it.isDigit() } || rawNum.all { it in "Il|!" }) {
-                val digits = rawNum.replace(Regex("""[Il|!]"""), "1")
+                val digits = rawNum.replace(Regex("""[Il|!]"""), "1").replace(Regex("""[Oo]"""), "0")
                 "$digits ${m.groupValues[2]}"
             } else {
                 m.value
             }
         }
-        s = s.replace(Regex("""\(\s*([0-9Il|!]+(?:[.,][0-9Il|!]+)?)\s*(km|m)\s*\)""", RegexOption.IGNORE_CASE)) { m ->
-            val fixedNum = m.groupValues[1].replace(Regex("""[Il|!]"""), "1")
-            "($fixedNum ${m.groupValues[2]})"
+        s = s.replace(Regex("""\(\s*([0-9Il|!Oo]+(?:[.,][0-9Il|!Oo]+)?)\s*(km|m)\s*\)""", RegexOption.IGNORE_CASE)) { m ->
+            val rawNum = m.groupValues[1]
+            if (rawNum.any { it.isDigit() }) {
+                val fixedNum = rawNum.replace(Regex("""[Il|!]"""), "1").replace(Regex("""[Oo]"""), "0")
+                "($fixedNum ${m.groupValues[2]})"
+            } else {
+                m.value
+            }
         }
         return s
     }
@@ -958,7 +1150,8 @@ object RideOfferParser {
         var hasRiskBadge = false
 
         for (t in texts) {
-            if (TextNormalizer.normalize(t).contains("area de risco")) {
+            // "Área de risco" (o OCR as vezes le "9ÁTea de risco")
+            if (TextNormalizer.normalize(t).contains("ea de risco")) {
                 hasRiskBadge = true
             }
         }
