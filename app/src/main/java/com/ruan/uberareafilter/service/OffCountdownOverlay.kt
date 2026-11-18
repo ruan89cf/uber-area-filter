@@ -61,7 +61,14 @@ object OffCountdownOverlay {
                 return
             }
             val totalSec = (left / 1000L).toInt()
-            v.text = String.format(Locale.US, "OFF  %d:%02d", totalSec / 60, totalSec % 60)
+            // "OFF" em cima e a contagem menor embaixo
+            val time = String.format(Locale.US, "%d:%02d", totalSec / 60, totalSec % 60)
+            v.text = android.text.SpannableStringBuilder("OFF\n").apply {
+                val start = length
+                append(time)
+                setSpan(android.text.style.RelativeSizeSpan(0.72f), start, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                setSpan(android.text.style.ForegroundColorSpan(Color.parseColor("#FFDAD5")), start, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
             handler.postDelayed(this, 1000L)
         }
     }
@@ -84,8 +91,10 @@ object OffCountdownOverlay {
 
             val tv = TextView(ctx).apply {
                 gravity = Gravity.CENTER
-                layoutParams = LinearLayout.LayoutParams(dp(112), dp(46))
-                isSingleLine = true
+                layoutParams = LinearLayout.LayoutParams(dp(112), LinearLayout.LayoutParams.WRAP_CONTENT)
+                minHeight = dp(46)
+                maxLines = 2
+                setLineSpacing(0f, 0.9f)
                 includeFontPadding = false
                 setTextColor(Color.parseColor("#FFFFFF"))
                 textSize = 14f
@@ -96,7 +105,7 @@ object OffCountdownOverlay {
                     setColor(Color.parseColor("#F2D0101F"))
                     setStroke(dp(2), Color.parseColor("#B8FFFFFF"))
                 }
-                setPadding(dp(10), 0, dp(10), 0)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
                 elevation = dp(8).toFloat()
                 contentDescription = "Filtro desligado. Toque para religar. Segure para esconder."
             }
