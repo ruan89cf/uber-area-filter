@@ -12,6 +12,12 @@ object Changelog {
 
     val releases: List<Release> = listOf(
         Release(
+            versionCode = 18, versionName = "2.6.1", date = "18/11/2026",
+            items = listOf(
+                Item("⏳", "Botão corrigido", "O texto ON/PAUSA aparece sempre inteiro e o botão do OFF também virou ampulheta: o ícone de cima abre o app mesmo com o filtro desligado.")
+            )
+        ),
+        Release(
             versionCode = 17, versionName = "2.6", date = "18/11/2026",
             items = listOf(
                 Item("⏳", "Botão novo em ampulheta", "O ícone do app e o ON/PAUSA viraram um botão só: em cima o ícone (toque para abrir o app, sem passar pelas configurações do Android), embaixo o estado (toque para pausar/ligar). Arrastando, vão os dois juntos. Segurar continua abrindo o “🐞 Algo deu errado?”."),

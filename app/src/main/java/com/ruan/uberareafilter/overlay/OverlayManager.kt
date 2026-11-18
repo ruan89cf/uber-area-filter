@@ -852,7 +852,12 @@ class OverlayManager(private val context: Context) {
                     pill.contentDescription = "Desligado."
                 }
             }
-            pill.setPadding(dp(18), dp(10), dp(18), dp(10))
+            pill.setPadding(dp(10), 0, dp(10), 0)
+            // Garante que a janela acompanha o conteudo (texto sempre inteiro)
+            floatingRootView?.let { root ->
+                root.requestLayout()
+                floatingParams?.let { lp -> runCatching { windowManager.updateViewLayout(root, lp) } }
+            }
 
             updateRideLockChipOnMain(rideLockBadgeText, onReleaseRideLock)
         }
@@ -1221,6 +1226,10 @@ class OverlayManager(private val context: Context) {
         val pill = TextView(context).apply {
             text = pillLabel(Color.parseColor("#06C167"), "ON")
             gravity = Gravity.CENTER
+            // Largura fixa que cabe "● PAUSA": trocar ON <-> PAUSA nao muda o tamanho da janela (nao corta o texto)
+            layoutParams = LinearLayout.LayoutParams(dp(112), dp(46))
+            isSingleLine = true
+            includeFontPadding = false
             minWidth = dp(64)
             minHeight = dp(44)
             setTextColor(Color.WHITE)
@@ -1228,7 +1237,7 @@ class OverlayManager(private val context: Context) {
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = 0.04f
             background = ringedPillBackground(Color.parseColor("#F2111111"), Color.parseColor("#B8FFFFFF"), 24)
-            setPadding(dp(18), dp(10), dp(18), dp(10))
+            setPadding(dp(10), 0, dp(10), 0)
             elevation = dp(8).toFloat()
         }
         floatingPillView = pill

@@ -14,6 +14,9 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowManager
+import android.view.View
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.ruan.uberareafilter.model.RunState
@@ -29,15 +32,17 @@ import kotlin.math.abs
  *
  * Como a Acessibilidade ja esta desligada (apps de banco param de reclamar), ele usa a permissao
  * "Sobrepor a outros apps" (TYPE_APPLICATION_OVERLAY). Mostra uma contagem regressiva configuravel
- * (padrao 10 min). Toque = religa (ON). Segurar = esconde agora. Quando o tempo acaba ele some e o
- * app e fechado para economizar bateria.
+ * (padrao 10 min). Mesma ampulheta do botao flutuante: icone em cima = abre o app; OFF embaixo = religa (ON).
+ * Segurar = esconde agora. Quando o tempo acaba ele some e o app e fechado para economizar bateria.
  */
 object OffCountdownOverlay {
 
     private const val TAP_GUARD_MS = 1200L
 
     private val handler = Handler(Looper.getMainLooper())
-    private var view: TextView? = null
+    private var view: View? = null
+    private var label: TextView? = null
+    private var logoBottom = 0
     private var params: WindowManager.LayoutParams? = null
     private var endsAt = 0L
     private var shownAt = 0L
@@ -46,7 +51,7 @@ object OffCountdownOverlay {
 
     private val tick = object : Runnable {
         override fun run() {
-            val v = view ?: return
+            val v = label ?: return
             val left = endsAt - System.currentTimeMillis()
             if (left <= 0L) {
                 val ctx = v.context.applicationContext
@@ -79,8 +84,9 @@ object OffCountdownOverlay {
 
             val tv = TextView(ctx).apply {
                 gravity = Gravity.CENTER
-                minWidth = dp(64)
-                minHeight = dp(44)
+                layoutParams = LinearLayout.LayoutParams(dp(112), dp(46))
+                isSingleLine = true
+                includeFontPadding = false
                 setTextColor(Color.parseColor("#FFFFFF"))
                 textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
@@ -90,10 +96,37 @@ object OffCountdownOverlay {
                     setColor(Color.parseColor("#F2D0101F"))
                     setStroke(dp(2), Color.parseColor("#B8FFFFFF"))
                 }
-                setPadding(dp(18), dp(10), dp(18), dp(10))
+                setPadding(dp(10), 0, dp(10), 0)
                 elevation = dp(8).toFloat()
                 contentDescription = "Filtro desligado. Toque para religar. Segure para esconder."
             }
+            val logo = ImageView(ctx).apply {
+                setImageResource(com.ruan.uberareafilter.R.drawable.ic_logo_mark)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#E6121212"))
+                    setStroke(dp(2), Color.parseColor("#B8FFFFFF"))
+                }
+                setPadding(dp(7), dp(7), dp(7), dp(7))
+                elevation = dp(8).toFloat()
+                contentDescription = "Abrir o Filtro Inteligente"
+                layoutParams = LinearLayout.LayoutParams(dp(50), dp(50))
+            }
+            val neck = View(ctx).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(3).toFloat()
+                    setColor(Color.parseColor("#B8FFFFFF"))
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(12), dp(6))
+            }
+            val root = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                addView(logo)
+                addView(neck)
+                addView(tv)
+            }
+            logoBottom = dp(53)
             val lp = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -105,14 +138,15 @@ object OffCountdownOverlay {
                 x = startX ?: dp(10)
                 y = startY ?: dp(240)
             }
-            attachTouch(tv, lp, wm, dp(8))
+            attachTouch(root, lp, wm, dp(8))
             try {
-                wm.addView(tv, lp)
+                wm.addView(root, lp)
             } catch (e: Exception) {
                 log(ctx, "[OFF] Falha ao mostrar botão OFF: ${e.javaClass.simpleName}: ${e.message}")
                 return@post
             }
-            view = tv
+            view = root
+            label = tv
             params = lp
             shownAt = System.currentTimeMillis()
             endsAt = shownAt + minutes * 60_000L
@@ -136,11 +170,12 @@ object OffCountdownOverlay {
             runCatching { (ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(v) }
         }
         view = null
+        label = null
         params = null
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun attachTouch(tv: TextView, lp: WindowManager.LayoutParams, wm: WindowManager, slop: Int) {
+    private fun attachTouch(tv: View, lp: WindowManager.LayoutParams, wm: WindowManager, slop: Int) {
         var ix = 0
         var iy = 0
         var tx = 0f
@@ -180,7 +215,9 @@ object OffCountdownOverlay {
                     if (!moved && !longPressed && e.action == MotionEvent.ACTION_UP) {
                         val ctx = tv.context.applicationContext
                         val sinceShown = System.currentTimeMillis() - shownAt
-                        if (sinceShown < TAP_GUARD_MS) {
+                        if (e.y < logoBottom) {
+                            openApp(ctx)
+                        } else if (sinceShown < TAP_GUARD_MS) {
                             // O botao OFF nasce no mesmo lugar do botao flutuante: um 2o toque rapido
                             // (de quem tocou ON -> PAUSA -> OFF depressa) religava sem querer.
                             log(ctx, "[OFF] Toque ignorado: botão OFF apareceu há ${sinceShown} ms (proteção contra toque duplo)")
@@ -212,6 +249,17 @@ object OffCountdownOverlay {
         }
         FilterTileService.requestRefresh(ctx)
         removeView(ctx)
+    }
+
+    /** Toque no icone: abre o app (o botao OFF continua na tela). */
+    private fun openApp(ctx: Context) {
+        runCatching {
+            ctx.startActivity(
+                Intent(ctx, com.ruan.uberareafilter.ui.MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            )
+            log(ctx, "[OFF] Abri o app pelo ícone do botão OFF")
+        }.onFailure { log(ctx, "[OFF] ⚠ Falha ao abrir o app: ${it.message}") }
     }
 
     /** "Fecha o app": so encerra o processo se nenhuma tela do app estiver aberta. */
