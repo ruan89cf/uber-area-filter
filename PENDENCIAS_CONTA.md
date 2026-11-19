@@ -8,7 +8,10 @@
 - **Site de administração:** `https://d07z412uu9.execute-api.sa-east-1.amazonaws.com/admin`
   - Senha: arquivo `server/secrets/admin_token.txt` (fora do git; guarde num lugar seguro).
   - Usuários (+30 dias, vitalício, bloquear, liberar troca de celular), celulares, cupons, códigos de acesso, atualização obrigatória.
-- **App 3.0:** sem licença válida não abre nem filtra. Tela "Minha conta" (ícone de pessoa no topo): plano, dias de teste, cupom, assinar, sair. Código ofuscado (R8).
+- **App 3.1:** conta com e-mail e senha (nome, sobrenome, nascimento, gênero), código por e-mail, esqueci a senha, aviso de dias grátis, cupom e planos no botão de pessoa, trânsito moto/carro, cópia na conta (zonas, ganhos, histórico, registros) e atualização baixada pelo app. Código ofuscado (R8).
+- **Painel:** entra com e-mail e senha da sua conta (`ADMIN_EMAILS` = seu e-mail) ou com a senha mestra. Abas: Usuários (com registros e cópias de cada um), Celulares, Cupons, Atualizações (enviar APK, marcar obrigatória), Teste e preços, Códigos de e-mail.
+- **Publicar versão** (eu faço quando você pedir): `python tools/publicar_versao.py --notas "o que mudou" [--obrigatoria]`
+- **Arquivos:** bucket S3 `filtro-inteligente-arquivos-540555871052` (APKs em `apks/`, dados de cada conta em `users/<id>/`).
 
 ## Falta (com você)
 
@@ -31,7 +34,12 @@ Escolher o nome. O pacote (`com.ruan.uberareafilter`) deve ser trocado **antes**
 5. **Play App Signing:** o Google reassina o app. Me passe o **SHA-256** do "certificado da chave de assinatura do app" para eu trocar a trava de APK modificado no servidor (`APK_CERT_SHA256`). Sem isso, a versão da Play Store seria tratada como modificada.
 6. **Conta de serviço** para o servidor conferir as compras: Google Cloud → IAM → Contas de serviço → criar → chave JSON; no Play Console → Usuários e permissões → convidar o e-mail dessa conta com acesso a "Ver dados financeiros / gerenciar pedidos e assinaturas". Me mande o JSON (eu guardo só no servidor).
 
-### 4. Segurança da AWS (importante)
+### 4. E-mail dos códigos (Amazon SES)
+1. Abra o e-mail **"Amazon Web Services – Email Address Verification Request"** que chegou em ruan89f@gmail.com e clique no link (autoriza o servidor a enviar como você).
+2. Pedido de liberação do envio já feito (status: em análise, costuma levar 1 dia). Até liberar, os códigos aparecem no painel, aba **Códigos de e-mail**.
+3. Depois, para os e-mails não caírem no spam, o ideal é um domínio próprio (ex.: filtrointeligente.com.br) — eu configuro quando tiver.
+
+### 5. Segurança da AWS (importante)
 Apague a **chave de acesso root** (`AKIAX3W5...`) no console: IAM → Credenciais de segurança → Chaves de acesso → Excluir. Ela está no histórico da conversa. Para mexer no servidor depois, crie um usuário IAM só para isso.
 
 ## Fica para a próxima entrega

@@ -196,4 +196,7 @@
     <string name="help_button">O que é isso?</string>
     <string name="help_ok">Entendi</string>
     <string name="help_example">Exemplo</string>
+    <string name="main_traffic_vehicle">Calcular o trânsito para:</string>
+    <string name="main_traffic_moto">🏍 Moto</string>
+    <string name="main_traffic_car">🚗 Carro</string>
 </resources>

@@ -7,12 +7,14 @@ function memoryStore() {
   const get = async (pk, sk) => (m.has(k(pk, sk)) ? structuredClone(m.get(k(pk, sk))) : null);
   const put = async (pk, sk, item) => { m.set(k(pk, sk), structuredClone({ ...item, pk, sk })); };
   const scan = async (prefix, skEq) => [...m.values()].filter((v) => v.pk.startsWith(prefix) && (!skEq || v.sk === skEq)).map((v) => structuredClone(v));
-  return { get, put, scan, add: async (pk, sk, field, n) => { const it = (await get(pk, sk)) || {}; it[field] = (it[field] || 0) + n; await put(pk, sk, it); return it[field]; }, _m: m };
+  const query = async (pk, limit = 50) => [...m.values()].filter((v) => v.pk === pk).sort((a, b) => (a.sk < b.sk ? 1 : -1)).slice(0, limit).map((v) => structuredClone(v));
+  const del = async (pk, sk) => { m.delete(k(pk, sk)); };
+  return { get, put, scan, query, del, add: async (pk, sk, field, n) => { const it = (await get(pk, sk)) || {}; it[field] = (it[field] || 0) + n; await put(pk, sk, it); return it[field]; }, _m: m };
 }
 
 async function dynamoStore() {
   const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
-  const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand, QueryCommand } = await import("@aws-sdk/lib-dynamodb");
+  const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand, QueryCommand, DeleteCommand } = await import("@aws-sdk/lib-dynamodb");
   const doc = DynamoDBDocumentClient.from(new DynamoDBClient({}), { marshallOptions: { removeUndefinedValues: true } });
   return {
     get: async (pk, sk) => (await doc.send(new GetCommand({ TableName: TABLE, Key: { pk, sk } }))).Item || null,
@@ -39,9 +41,10 @@ async function dynamoStore() {
       }));
       return r.Attributes[field];
     },
-    query: async (pk) => (await doc.send(new QueryCommand({
-      TableName: TABLE, KeyConditionExpression: "pk = :p", ExpressionAttributeValues: { ":p": pk }, ScanIndexForward: false, Limit: 50
-    }))).Items || []
+    query: async (pk, limit = 50) => (await doc.send(new QueryCommand({
+      TableName: TABLE, KeyConditionExpression: "pk = :p", ExpressionAttributeValues: { ":p": pk }, ScanIndexForward: false, Limit: limit
+    }))).Items || [],
+    del: async (pk, sk) => { await doc.send(new DeleteCommand({ TableName: TABLE, Key: { pk, sk } })); }
   };
 }
 
@@ -80,6 +83,36 @@ export const store = {
     const b = await backend();
     if (b.query) return (await b.query(`LOG#${sub}`)).map(strip);
     return (await b.scan(`LOG#${sub}`)).map(strip).sort((x, y) => y.at - x.at).slice(0, 50);
+  },
+  // conta por e-mail: indice e-mail -> sub (Google, senha e codigo caem na mesma conta)
+  async subForEmail(email) { return (await (await backend()).get(`EMAIL#${email}`, "META"))?.sub || null; },
+  async linkEmail(email, sub) { await (await backend()).put(`EMAIL#${email}`, "META", { sub }); },
+  // codigos de 6 digitos (confirmar e-mail / trocar senha)
+  async getCode(email, purpose) { return strip(await (await backend()).get(`CODE#${email}`, purpose)); },
+  async putCode(email, purpose, c) { await (await backend()).put(`CODE#${email}`, purpose, c); },
+  async delCode(email, purpose) { await (await backend()).put(`CODE#${email}`, purpose, { exp: 0, used: true, ttl: Math.floor(Date.now() / 1000) + 3600 }); },
+  async listCodes() { return (await (await backend()).scan("CODE#")).map((x) => ({ ...strip(x), email: x.pk.slice(5), purpose: x.sk })); },
+  async countFailure(key) { return (await backend()).add(`FAIL#${key}`, "N", "n", 1); },
+  // versoes do app (APK no S3)
+  async getVersion(code) { return strip(await (await backend()).get(`VERSION#${code}`, "META")); },
+  async putVersion(v) { await (await backend()).put(`VERSION#${v.versionCode}`, "META", v); },
+  async delVersion(code) { await (await backend()).del(`VERSION#${code}`, "META"); },
+  async listVersions() { return (await (await backend()).scan("VERSION#", "META")).map(strip).sort((a, b) => b.versionCode - a.versionCode); },
+  // copias de seguranca da conta (zonas, ganhos) e registros enviados
+  async getBackup(sub, kind) { return strip(await (await backend()).get(`BACKUP#${sub}`, kind)); },
+  async putBackup(sub, kind, b) { await (await backend()).put(`BACKUP#${sub}`, kind, b); },
+  async listBackups(sub) { return (await (await backend()).query(`BACKUP#${sub}`)).map((x) => ({ ...strip(x), kind: x.sk })); },
+  async addLogFile(sub, f) { await (await backend()).put(`LOGFILE#${sub}`, `${f.at}`, f); },
+  async listLogFiles(sub, limit = 60) { return (await (await backend()).query(`LOGFILE#${sub}`, limit)).map(strip); },
+  async listLoginCodes() { return (await (await backend()).scan("LOGINCODE#", "META")).map(strip); },
+  async listCouponUses(code) {
+    return (await (await backend()).query(`COUPON#${code}`, 500)).filter((x) => String(x.sk).startsWith("USED#"))
+      .map((x) => ({ sub: x.sk.slice(5), at: x.at }));
+  },
+  /** Consultas de transito do dia (QUOTA#<sub>#<dia>). */
+  async listQuotas(day) {
+    return (await (await backend()).scan("QUOTA#")).filter((x) => x.pk.endsWith("#" + day))
+      .map((x) => ({ sub: x.pk.slice(6, -(day.length + 1)), n: Number(x.n) || 0 }));
   },
   _backend: backend
 };

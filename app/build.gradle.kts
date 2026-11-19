@@ -13,8 +13,8 @@ android {
         applicationId = "com.ruan.uberareafilter"
         minSdk = 30
         targetSdk = 34
-        versionCode = 22
-        versionName = "3.0"
+        versionCode = 31
+        versionName = "3.9"
 
 
         // ID do cliente Web do Google (login). google.properties na raiz, linha: webClientId=xxxx.apps.googleusercontent.com

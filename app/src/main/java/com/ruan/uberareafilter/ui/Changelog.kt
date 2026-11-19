@@ -12,6 +12,78 @@ object Changelog {
 
     val releases: List<Release> = listOf(
         Release(
+            versionCode = 31, versionName = "3.9", date = "19/11/2026",
+            items = listOf(
+                Item("📏", "Rota real com folga", "A busca real só barra se passar o seu embarque máximo em mais de 500 m (GPS e o ponto do endereço variam). Antes recusou uma corrida na sua zona por 100 m. Passarela só conta se a busca real for 1 km maior que a da 99."),
+                Item("🟣", "Entre zonas continua roxo", "Se a rota real for pior, o card entre zonas mostra a linha de aviso mas continua roxo, para você decidir. Na recusa pela rota real, o card diz que a zona estava ok.")
+            )
+        ),
+        Release(
+            versionCode = 30, versionName = "3.8", date = "19/11/2026",
+            items = listOf(
+                Item("🔁", "Recusou pela rota real? Você ainda pode aceitar", "Quando o app recusa por causa do trânsito ou dos km reais (passarela, volta), o card mostra \"Aceitar se tocar de novo\". Às vezes você quer ir para aquele lugar mesmo pagando pouco: toque e, se a 99 mandar de novo, o app aceita.")
+            )
+        ),
+        Release(
+            versionCode = 29, versionName = "3.7", date = "19/11/2026",
+            items = listOf(
+                Item("📏", "Km reais na conferência", "Antes de aceitar sozinho, o app agora confere também os km da rota real (você → embarque → destino). Se a 99 contou a passarela e de moto/carro a busca é bem maior, ou se o R$/km com os km reais não fecha, ele não aceita."),
+                Item("🟣", "Entre zonas mostra a rota real", "Nas corridas entre zonas (você decide), o card ganha uma linha com os km e o tempo reais. Se a rota real for pior que a da 99, o card fica vermelho."),
+                Item("🔎", "Motivo quando o trânsito não responde", "O registro diz se faltou GPS, se não achou o endereço no mapa ou se a internet demorou.")
+            )
+        ),
+        Release(
+            versionCode = 28, versionName = "3.6", date = "19/11/2026",
+            items = listOf(
+                Item("🛠️", "Painel do dono no app", "Só na conta e no celular do dono: o painel completo (usuários, cupons, atualizações, avisos) abre dentro do app, pelo botão de pessoa."),
+                Item("📣", "Avisos do suporte", "Quando o suporte mandar um aviso, ele aparece uma vez na tela do app."),
+                Item("🚦", "Inclui a 3.5", "Trânsito mais rápido pelo servidor, contador do card contando a zona e atualização checada a cada 10 minutos.")
+            )
+        ),
+        Release(
+            versionCode = 27, versionName = "3.5", date = "19/11/2026",
+            items = listOf(
+                Item("🚦", "Trânsito volta a responder", "Na 3.4 todas as consultas de trânsito passavam do tempo (1,5 s). O servidor ficou mais rápido, o app já abre a conexão quando a oferta aparece e espera até 2,5 s."),
+                Item("🔢", "Contador do card conta a zona", "Corrida recusada por estar fora da zona mostrava \"5/5 ok\". Agora embarque e destino entram na conta (ex.: \"5/7 ok\")."),
+                Item("⬇️", "Atualização aparece mais rápido", "Com o app aberto, ele procura versão nova a cada 10 minutos (antes era a cada hora).")
+            )
+        ),
+        Release(
+            versionCode = 26, versionName = "3.4", date = "19/11/2026",
+            items = listOf(
+                Item("🟣", "Ida e volta entre zonas: você decide", "Você está na Zona 1 e a corrida busca na Zona 2 e volta para a Zona 1? Antes o app aceitava sozinho. Agora o card toca roxo e você decide. \"Volta para a Zona 1\" só aceita sozinho quando você está fora dela."),
+                Item("💲", "Sem valor lido, não aceita sozinho", "Se o app não conseguiu ler o R$ da corrida, ele não tem como conferir R$/km e R$/h: mostra o card e você decide."),
+                Item("⬇️", "Instalar pelas Novidades", "Quando tem versão nova, a tela de Novidades mostra o botão para baixar e instalar. O arquivo fica salvo na pasta Download do celular.")
+            )
+        ),
+        Release(
+            versionCode = 25, versionName = "3.3", date = "19/11/2026",
+            items = listOf(
+                Item("🔘", "Dois botões em vez de três", "Em corrida, o aviso \"1 corrida 99\" (ou \"2 corridas\") aparece dentro do botão ON, numa linha pequena embaixo. Tocar nessa linha libera a trava."),
+                Item("🚦", "Card cinza enquanto confere o trânsito", "Quando a corrida passa em tudo, o card fica cinza (\"Conferindo trânsito\"). Depois fica na cor da zona se o trânsito estiver ok, ou vermelho se estiver pesado."),
+                Item("🗺️", "Em corrida, embarque fora da zona é recusado", "Antes, com passageiro na Zona 1, o app podia aceitar uma 2ª corrida com embarque fora da zona (ex.: estação do outro lado da passarela) só porque o destino era dentro. Agora recusa."),
+                Item("⭐", "Favoritos: voltar volta", "Voltar do Favoritos leva para a tela do app em vez de fechar tudo."),
+                Item("👋", "Apresentação e telas de conta novas", "Na primeira vez, cards explicam o app. As telas de entrar e criar conta ganharam o visual do app."),
+                Item("☁️", "Trânsito pelo nosso servidor", "A chave antiga de teste deixou de ser usada: a consulta de trânsito passa pela sua conta.")
+            )
+        ),
+        Release(
+            versionCode = 24, versionName = "3.2", date = "19/11/2026",
+            items = listOf(
+                Item("⬇️", "Teste de atualização", "Versão para testar a atualização pelo próprio app, sem cabo. Nada mudou no filtro.")
+            )
+        ),
+        Release(
+            versionCode = 23, versionName = "3.1", date = "19/11/2026",
+            items = listOf(
+                Item("👤", "Conta com e-mail e senha", "Crie sua conta com nome, sobrenome, nascimento e gênero, confirme o e-mail com um código e entre com e-mail e senha. Esqueceu a senha? Receba um código e crie outra."),
+                Item("🎁", "Dias grátis, cupom e planos", "Ao entrar, aparece quantos dias grátis você tem. Assinando durante o teste, os dias que sobram são somados ao plano. Cupom e planos ficam no botão de pessoa, no topo."),
+                Item("🏍", "Trânsito para moto ou carro", "Em Filtros, escolha se o trânsito é calculado para moto ou para carro: a moto passa no corredor e o tempo muda."),
+                Item("☁️", "Seus dados na conta", "Zonas do mapa, ganhos, histórico e registros ficam salvos na sua conta. Trocou de celular? Ao entrar, eles voltam sozinhos."),
+                Item("⬇️", "Atualização pelo app", "Quando sair versão nova, o app avisa e baixa sozinho. Se for obrigatória, o filtro só volta depois de atualizar.")
+            )
+        ),
+        Release(
             versionCode = 22, versionName = "3.0", date = "19/11/2026",
             items = listOf(
                 Item("🔐", "Conta obrigatória", "Agora o app funciona com conta: entre com o Google (ou com um código de acesso). Conta nova em celular novo ganha 7 dias grátis. Depois, assinatura mensal ou anual pelo Google Play, ou cupom."),

@@ -45,6 +45,7 @@ class WhatsNewActivity : AppCompatActivity() {
         val top = Changelog.releases.firstOrNull()
         binding.txtVersionPill.text = if (fromMain) "Histórico de atualizações"
         else "Atualizado para a versão ${top?.versionName ?: ""}"
+        addUpdateCardIfAny()
         releases.forEachIndexed { i, r -> addRelease(r, first = i == 0) }
 
         if (fromMain) binding.btnProceedToMain.text = "Voltar"
@@ -56,6 +57,23 @@ class WhatsNewActivity : AppCompatActivity() {
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    /** Tem versao nova no servidor? Mostra no topo com o botao para baixar e instalar. */
+    private fun addUpdateCardIfAny() {
+        val st = com.ruan.uberareafilter.account.AccountGate.state(this) ?: return
+        if (!st.hasUpdate || st.latestVersionCode <= com.ruan.uberareafilter.BuildConfig.VERSION_CODE) return
+        val ui = AccountUi(this)
+        val name = st.latestVersionName.ifBlank { st.latestVersionCode.toString() }
+        binding.releasesContainer.addView(ui.card(
+            if (st.mustUpdate) ui.red else ui.amber,
+            ui.text(if (st.mustUpdate) "Atualização obrigatória: versão $name" else "Nova versão $name disponível", 17f, bold = true),
+            ui.text(st.updateMessage.ifBlank { "Toque para baixar e instalar." }, 14f, ui.muted),
+            ui.text("O arquivo de instalação fica salvo na pasta Download do celular.", 12f, ui.muted),
+            ui.button("Baixar e instalar") {
+                AccountActivity.open(this, locked = false, screen = AccountActivity.SCREEN_UPDATE)
+            }
+        ))
+    }
 
     private fun addRelease(r: Changelog.Release, first: Boolean) {
         val container = binding.releasesContainer

@@ -65,6 +65,67 @@ class EarningsStore private constructor(context: Context) :
         // v1 e a primeira versao; migracoes futuras entram aqui
     }
 
+    // ---------- copia na conta (servidor) ----------
+
+    /** Quantos lancamentos existem (0 = celular novo / app reinstalado). */
+    fun entryCount(): Long = readableDatabase.rawQuery("SELECT COUNT(*) FROM entries", null).use { c ->
+        if (c.moveToFirst()) c.getLong(0) else 0L
+    }
+
+    /** Copia consistente do banco num arquivo (para mandar ao servidor). */
+    @Synchronized
+    fun exportTo(dest: java.io.File) {
+        dest.delete()
+        val db = writableDatabase
+        val ok = runCatching { db.execSQL("VACUUM INTO ?", arrayOf(dest.absolutePath)); true }.getOrDefault(false)
+        if (!ok) {
+            runCatching { db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() } }
+            java.io.File(db.path).copyTo(dest, overwrite = true)
+        }
+    }
+
+    /**
+     * Junta um banco baixado da conta neste (sem fechar o banco em uso). Lancamentos entram todos;
+     * dias que ja existem aqui ficam como estao. Devolve quantos lancamentos entraram.
+     */
+    @Synchronized
+    fun importFrom(src: java.io.File): Int {
+        val db = writableDatabase
+        fun cols(schema: String, table: String): List<String> =
+            db.rawQuery("PRAGMA $schema.table_info($table)", null).use { c ->
+                val out = mutableListOf<String>()
+                while (c.moveToNext()) out += c.getString(1)
+                out
+            }
+        db.execSQL("ATTACH DATABASE ? AS bk", arrayOf(src.absolutePath))
+        try {
+            val before = entryCount()
+            db.beginTransaction()
+            try {
+                val e = cols("main", "entries").intersect(cols("bk", "entries").toSet()).filter { it != "id" }.joinToString(",")
+                if (e.isNotEmpty()) db.execSQL("INSERT INTO main.entries($e) SELECT $e FROM bk.entries")
+                val d = cols("main", "days").intersect(cols("bk", "days").toSet()).joinToString(",")
+                if (d.isNotEmpty()) db.execSQL("INSERT OR IGNORE INTO main.days($d) SELECT $d FROM bk.days")
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            return (entryCount() - before).toInt()
+        } finally {
+            runCatching { db.execSQL("DETACH DATABASE bk") }
+        }
+    }
+
+    /** Apaga lancamentos e dias ANTES de `dayKey` (aaaa-mm-dd); o dia escolhido fica. Devolve quantos lancamentos saiu. */
+    @Synchronized
+    fun deleteBefore(dayKey: String): Int {
+        val ts = runCatching { SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dayKey)!!.time }.getOrNull() ?: return 0
+        val db = writableDatabase
+        val n = db.delete("entries", "ts < ?", arrayOf(ts.toString()))
+        db.delete("days", "day < ?", arrayOf(dayKey))
+        return n
+    }
+
     // ---------- entries ----------
 
     data class Entry(

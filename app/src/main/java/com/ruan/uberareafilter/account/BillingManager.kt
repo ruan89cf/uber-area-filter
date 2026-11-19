@@ -89,14 +89,15 @@ class BillingManager(
         }
         purchases.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }.forEach { p ->
             scope.launch {
-                val (_, err) = AccountGate.verifyPurchase(activity, p.purchaseToken, p.products.firstOrNull().orEmpty())
-                if (err == null) {
+                val res = AccountGate.verifyPurchase(activity, p.purchaseToken, p.products.firstOrNull().orEmpty())
+                val err = res.error
+                if (res.ok) {
                     if (!p.isAcknowledged) {
                         client.acknowledgePurchase(AcknowledgePurchaseParams.newBuilder().setPurchaseToken(p.purchaseToken).build())
                     }
                     onMessage("Assinatura ativada. Obrigado!")
                 } else {
-                    onMessage(err)
+                    onMessage(err ?: "Não foi possível confirmar a compra")
                 }
                 launch(Dispatchers.Main) { onStateChanged() }
             }

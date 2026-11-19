@@ -107,8 +107,32 @@ data class AccountState(
     val hasUpdate: Boolean,
     val updateUrl: String,
     val updateMessage: String,
-    val message: String?         // erro/aviso para mostrar ("Conta bloqueada", "outro celular"...)
+    val message: String?,        // erro/aviso para mostrar ("Conta bloqueada", "outro celular"...)
+    val firstName: String = "",
+    val lastName: String = "",
+    val birthDate: String = "",
+    val gender: String = "",
+    val profileComplete: Boolean = true,
+    val hasPassword: Boolean = false,
+    val latestVersionCode: Int = 0,
+    val latestVersionName: String = "",
+    val updateIsApk: Boolean = false,
+    val updateSha256: String = "",
+    val updateSize: Long = 0L,
+    val priceMonthly: Double = 29.9,
+    val priceYearly: Double = 299.0,
+    val trialDays: Int = 7,
+    val isAdmin: Boolean = false,
+    /** Aviso mandado pelo painel (aparece uma vez). */
+    val noticeId: String = "",
+    val noticeText: String = "",
+    /** Comandos do painel para este celular (ex.: limpar ganhos antigos). */
+    val commands: List<AccountCommand> = emptyList(),
+    /** Modo manutencao ligado no painel: o filtro fica parado com esta mensagem. */
+    val maintenance: String = ""
 )
+
+data class AccountCommand(val id: String, val type: String, val day: String)
 
 class AccountStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("conta", Context.MODE_PRIVATE)
@@ -125,6 +149,11 @@ class AccountStore(context: Context) {
     var stateJson: String?
         get() = prefs.getString("state", null)
         set(v) { prefs.edit().putString("state", v).apply() }
+
+    /** Mostrar o aviso de boas-vindas (dias gratis, cupom, assinar) ao abrir o app depois do login. */
+    var welcomePending: Boolean
+        get() = prefs.getBoolean("welcomePending", false)
+        set(v) { prefs.edit().putBoolean("welcomePending", v).apply() }
 
     fun clear() = prefs.edit().clear().apply()
 }
@@ -150,9 +179,23 @@ object ServerApi {
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             val json = runCatching { JSONObject(text) }.getOrNull()
+            // Sem disconnect(): a conexao segura fica aberta e a proxima chamada (ex.: transito) nao
+            // paga o aperto de mao HTTPS de novo (economiza 0,3-0,8 s no 4G)
             ApiResult(code in 200..299 && json?.optBoolean("ok") == true, code, json)
-        } finally {
+        } catch (e: Exception) {
             conn.disconnect()
+            throw e
         }
     }.getOrElse { ApiResult(false, 0, null) }
+
+    /** Abre a conexao com o servidor antes de precisar (chamada leve), para o transito responder rapido. */
+    fun warmUp() {
+        runCatching {
+            val conn = (URL(ServerConfig.API + "/v1/app-config?v=0").openConnection() as HttpURLConnection).apply {
+                connectTimeout = 4000
+                readTimeout = 4000
+            }
+            conn.inputStream.use { it.readBytes() }
+        }
+    }
 }

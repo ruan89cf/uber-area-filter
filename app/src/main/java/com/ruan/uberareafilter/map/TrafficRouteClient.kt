@@ -17,7 +17,7 @@ object TrafficRouteClient {
     // A chave da AWS foi criada em sa-east-1 (Sao Paulo): o endereco precisa ser da mesma regiao
     private const val URL_AWS = "https://routes.geo.sa-east-1.amazonaws.com/v2/routes"
 
-    data class Result(val minutes: Double, val travelMode: String)
+    data class Result(val minutes: Double, val travelMode: String, val pickupKm: Double? = null, val rideKm: Double? = null)
 
     /** Modo que deu certo na ultima vez (o Google pode nao ter "moto" para a regiao): evita 2 chamadas. */
     @Volatile
@@ -28,18 +28,22 @@ object TrafficRouteClient {
         driver: Pair<Double, Double>,
         pickup: Pair<Double, Double>,
         dropoff: Pair<Double, Double>,
-        timeoutMs: Int
+        timeoutMs: Int,
+        car: Boolean = false
     ): Result? {
         if (TrafficCheck.isAwsKey(apiKey)) {
-            val minutes = runCatching { callAws(apiKey.trim(), driver, pickup, dropoff, timeoutMs) }.getOrNull()
-            return minutes?.let { Result(it, "AWS_SCOOTER") }
+            val mode = if (car) "Car" else "Scooter"
+            val r = runCatching { callAws(apiKey.trim(), driver, pickup, dropoff, timeoutMs, mode) }.getOrNull() ?: return null
+            val minutes = TrafficCheck.parseAwsDurationMinutes(r) ?: return null
+            val legs = TrafficCheck.parseAwsLegKm(r)
+            return Result(minutes, "AWS_" + mode.uppercase(), legs.getOrNull(0)?.takeIf { legs.size == 2 }, legs.getOrNull(1)?.takeIf { legs.size == 2 })
         }
-        // Moto primeiro (TWO_WHEELER); se o Google nao tiver moto para a regiao, tenta carro
-        val modes = workingMode?.let { listOf(it) } ?: listOf("TWO_WHEELER", "DRIVE")
+        // Carro: DRIVE. Moto: TWO_WHEELER; se o Google nao tiver moto para a regiao, tenta carro
+        val modes = if (car) listOf("DRIVE") else workingMode?.let { listOf(it) } ?: listOf("TWO_WHEELER", "DRIVE")
         for (mode in modes) {
             val minutes = runCatching { call(apiKey, driver, pickup, dropoff, mode, timeoutMs) }.getOrNull()
             if (minutes != null) {
-                workingMode = mode
+                if (!car) workingMode = mode
                 return Result(minutes, mode)
             }
         }
@@ -53,10 +57,11 @@ object TrafficRouteClient {
         driver: Pair<Double, Double>,
         pickup: Pair<Double, Double>,
         dropoff: Pair<Double, Double>,
-        timeoutMs: Int
-    ): Double? {
+        timeoutMs: Int,
+        mode: String
+    ): String? {
         val body = """{"Origin":${lngLat(driver)},"Destination":${lngLat(dropoff)},""" +
-            """"Waypoints":[{"Position":${lngLat(pickup)}}],"TravelMode":"Scooter","DepartNow":true}"""
+            """"Waypoints":[{"Position":${lngLat(pickup)}}],"TravelMode":"$mode","DepartNow":true,"LegAdditionalFeatures":["Summary"]}"""
         val url = URL(URL_AWS + "?key=" + java.net.URLEncoder.encode(apiKey, "UTF-8"))
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -68,8 +73,7 @@ object TrafficRouteClient {
         try {
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             if (conn.responseCode != 200) return null
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            return TrafficCheck.parseAwsDurationMinutes(text)
+            return conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()
         }

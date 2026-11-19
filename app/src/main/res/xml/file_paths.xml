@@ -2,4 +2,6 @@
 <!-- Pastas que o app pode entregar para outro app (ex.: arquivo das zonas para o WhatsApp) -->
 <paths>
     <cache-path name="compartilhar" path="compartilhar/" />
+    <!-- APK da atualizacao baixado do nosso servidor -->
+    <cache-path name="atualizacao" path="atualizacao/" />
 </paths>

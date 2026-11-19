@@ -100,10 +100,13 @@ class AreaEvaluator(private val context: Context? = null) {
     suspend fun evaluate(
         offer: ParsedRideOffer,
         config: FilterConfig,
-        driverFix: DriverFix? = null
+        driverFix: DriverFix? = null,
+        inActiveRide: Boolean = false,
+        /** Onde o motorista esta agora (lat, lng), mesmo em corrida. */
+        driverPoint: Pair<Double, Double>? = null
     ): EvaluationResult {
         val learned = learnBlockedPlaces(offer, config)
-        val result = evaluateCore(offer, config, driverFix)
+        val result = evaluateCore(offer, config, driverFix, inActiveRide, driverPoint)
         return if (learned.isEmpty()) result else result.copy(learnedBlockedPlaces = learned)
     }
 
@@ -130,7 +133,9 @@ class AreaEvaluator(private val context: Context? = null) {
     private suspend fun evaluateCore(
         offer: ParsedRideOffer,
         config: FilterConfig,
-        driverFix: DriverFix?
+        driverFix: DriverFix?,
+        inActiveRide: Boolean = false,
+        driverPoint: Pair<Double, Double>? = null
     ): EvaluationResult = coroutineScope {
         val violations = mutableListOf<String>()
         val nonAreaViolations = mutableListOf<String>()
@@ -341,8 +346,10 @@ class AreaEvaluator(private val context: Context? = null) {
             val pickupRes = pickupDeferred.await()
             val dropoffRes = dropoffDeferred.await()
 
-            // Leva o motorista PARA a area: embarque fora/incerto, destino dentro (e nada proibido)
-            val headsIntoArea = config.acceptRidesIntoArea &&
+            // Leva o motorista PARA a area: embarque fora/incerto, destino dentro (e nada proibido).
+            // Em corrida NAO vale: voce ja esta dentro da zona com passageiro; buscar alguem fora
+            // (ex.: estacao do outro lado da passarela) tira voce da zona e o tempo da 99 fica errado.
+            val headsIntoArea = config.acceptRidesIntoArea && !inActiveRide &&
                 !pickupRes.ok && dropoffRes.ok &&
                 !pickupRes.explicitBlocked && !dropoffRes.explicitBlocked
             val pickupLine = if (headsIntoArea) {
@@ -364,7 +371,16 @@ class AreaEvaluator(private val context: Context? = null) {
                 dropoffRes.zoneId != null &&
                 pickupRes.zoneId != dropoffRes.zoneId &&
                 !returnsToMainZone
-            if (returnsToMainZone) filterChecks.add("✔ Volta p/ ${dropoffRes.zoneName ?: "zona principal"}")
+            // "Volta para a Zona 1" so vale quando voce esta FORA dela (em outra zona, voltando para casa).
+            // Se voce ja esta na Zona 1, buscar na Zona 2 e voltar e ida e volta: o card toca e voce decide.
+            val mainZone = effectiveAllowedZones.firstOrNull()
+            val driverInMainZone = driverPoint == null || (mainZone != null && isPointInZone(driverPoint.first, driverPoint.second, mainZone))
+            val outAndBack = returnsToMainZone && driverInMainZone
+            if (outAndBack) {
+                filterChecks.add("🟣 Sai da ${dropoffRes.zoneName ?: "Zona 1"} p/ buscar na ${pickupRes.zoneName ?: "outra zona"} e volta")
+            } else if (returnsToMainZone) {
+                filterChecks.add("✔ Volta p/ ${dropoffRes.zoneName ?: "zona principal"}")
+            }
 
             if (isDifferentZones && !config.allowInterZoneRides) {
                 violations.add("Entre zonas (${pickupRes.zoneName} ➔ ${dropoffRes.zoneName})")
@@ -409,6 +425,15 @@ class AreaEvaluator(private val context: Context? = null) {
                     Decision.UNCERTAIN,
                     "⚠ " + uncertainties.joinToString(" • "),
                     checklist
+                )
+            }
+
+            if (outAndBack) {
+                return@coroutineScope EvaluationResult(
+                    Decision.INTER_ZONE,
+                    "🟣 Ida e volta: ${dropoffRes.zoneName ?: "Zona 1"} ➔ ${pickupRes.zoneName ?: "outra zona"} ➔ ${dropoffRes.zoneName ?: "Zona 1"} • Você decide",
+                    checklist,
+                    dropoffZoneId = pickupRes.zoneId
                 )
             }
 

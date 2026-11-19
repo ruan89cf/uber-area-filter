@@ -2,131 +2,404 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Filtro Inteligente · Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1C1B19">
+<title>Painel do Dono</title>
 <style>
-  :root { --bg:#0f172a; --card:#111c33; --line:#22304f; --text:#e2e8f0; --muted:#94a3b8; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b; --acc:#38bdf8; }
-  * { box-sizing:border-box } body { margin:0; font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text) }
-  header { padding:14px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap }
-  header h1 { font-size:17px; margin:0 12px 0 0 } input, select, button { font:inherit; border-radius:8px; border:1px solid var(--line); background:#0b1428; color:var(--text); padding:7px 10px }
-  button { background:#1d4ed8; border-color:#1d4ed8; cursor:pointer } button.ghost { background:transparent } button.red { background:#b91c1c; border-color:#b91c1c }
-  nav { display:flex; gap:6px; padding:10px 16px; flex-wrap:wrap } nav button { background:transparent } nav button.on { background:#1e293b; border-color:var(--acc) }
-  main { padding:0 16px 40px } .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:10px 0 }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px } .big { font-size:26px; font-weight:700 }
-  table { width:100%; border-collapse:collapse; margin-top:10px } th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top } th { color:var(--muted); font-weight:600 }
-  .pill { padding:2px 8px; border-radius:99px; font-size:12px; font-weight:600 } .active { background:#14532d; color:#86efac } .trial { background:#1e3a8a; color:#bfdbfe }
-  .expired { background:#3f3f46; color:#e4e4e7 } .blocked { background:#7f1d1d; color:#fecaca } .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0 }
-  .muted { color:var(--muted) } .actions button { padding:4px 8px; font-size:12px; margin:2px } #msg { min-height:20px; color:var(--warn) } .wrap { overflow-x:auto }
+  :root {
+    --bg:#F6F5F0; --surface:#FFFEFC; --surface2:#F1EFE8; --line:#E2DED5; --text:#22211E; --muted:#5F5C55; --faint:#8B877D;
+    --primary:#111111; --onprimary:#fff; --green:#1F7A4E; --greenbg:#DDF3E6; --red:#C8102E; --redbg:#FDE0E3; --amber:#8A5300; --amberbg:#FFF0C2;
+    --blue:#1D4ED8; --bluebg:#E0E8FF; --purple:#6D28D9; --purplebg:#EDE4FF; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg:#1C1B19; --surface:#22211F; --surface2:#2A2926; --line:#383632; --text:#E8E5DE; --muted:#ABA79D; --faint:#7E7A71;
+    --primary:#2FD07F; --onprimary:#0C1A12; --green:#72CC97; --greenbg:#173326; --red:#FF8A95; --redbg:#3A1A1E; --amber:#FFC56B; --amberbg:#3A2E14;
+    --blue:#93B4FF; --bluebg:#1C2540; --purple:#C4A6FF; --purplebg:#2A2140; --shadow:none; } }
+  * { box-sizing:border-box } html,body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif }
+  h1,h2,h3 { font-family:"Noto Serif",Georgia,serif; font-weight:700; margin:0 }
+  h1 { font-size:22px } h2 { font-size:19px; margin:22px 0 10px } h3 { font-size:16px; margin:16px 0 8px }
+  .wrap { max-width:1100px; margin:0 auto; padding:0 16px 80px }
+  header { position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--line); padding:12px 16px; display:flex; align-items:center; gap:10px }
+  header .logo { width:34px; height:34px; border-radius:10px; background:var(--primary); color:var(--onprimary); display:grid; place-items:center; font-weight:800 }
+  header .who { margin-left:auto; color:var(--muted); font-size:13px; text-align:right }
+  nav { position:sticky; top:59px; z-index:4; background:var(--bg); display:flex; gap:6px; overflow-x:auto; padding:10px 16px; scrollbar-width:none; border-bottom:1px solid var(--line) }
+  nav::-webkit-scrollbar { display:none }
+  nav button { flex:none; border:1px solid var(--line); background:var(--surface); color:var(--text); border-radius:99px; padding:7px 14px; font:inherit; font-size:14px; cursor:pointer }
+  nav button.on { background:var(--primary); color:var(--onprimary); border-color:var(--primary) }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px 16px; margin:10px 0; box-shadow:var(--shadow) }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px }
+  .kpi .n { font-size:26px; font-weight:750; font-variant-numeric:tabular-nums } .kpi .l { color:var(--muted); font-size:13px }
+  .kpi.accent { border-left:4px solid var(--primary) }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center } .row > * { flex:none }
+  .grow { flex:1 1 180px !important }
+  input, select, textarea { font:inherit; color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-height:44px; width:100% }
+  textarea { min-height:70px } label.f { display:block; font-size:13px; color:var(--muted); margin:8px 0 4px }
+  .btn { font:inherit; font-size:14px; font-weight:600; border-radius:12px; padding:10px 14px; min-height:42px; border:1px solid var(--line); background:var(--surface); color:var(--text); cursor:pointer }
+  .btn.primary { background:var(--primary); color:var(--onprimary); border-color:var(--primary) }
+  .btn.red { background:var(--redbg); color:var(--red); border-color:transparent } .btn.green { background:var(--greenbg); color:var(--green); border-color:transparent }
+  .btn.small { min-height:34px; padding:6px 10px; font-size:13px } .btn:disabled { opacity:.5 }
+  .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; font-weight:700 }
+  .p-active { background:var(--greenbg); color:var(--green) } .p-trial { background:var(--bluebg); color:var(--blue) }
+  .p-expired, .p-none { background:var(--surface2); color:var(--muted) } .p-blocked { background:var(--redbg); color:var(--red) } .p-life { background:var(--purplebg); color:var(--purple) }
+  .muted { color:var(--muted) } .faint { color:var(--faint); font-size:13px } .mono { font-family:ui-monospace,Consolas,monospace; font-size:13px }
+  .list .item { display:flex; gap:12px; align-items:center; padding:12px 4px; border-bottom:1px solid var(--line); cursor:pointer } .list .item:last-child { border-bottom:0 }
+  .avatar { width:40px; height:40px; border-radius:50%; background:var(--surface2); display:grid; place-items:center; font-weight:700; color:var(--muted); flex:none }
+  .item .main { flex:1; min-width:0 } .item .main b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .item .side { text-align:right; font-size:13px; color:var(--muted) }
+  .chips { display:flex; gap:6px; overflow-x:auto; margin:8px 0 } .chips button { flex:none }
+  .bars { display:flex; align-items:flex-end; gap:4px; height:90px; margin-top:8px } .bars div { flex:1; background:var(--primary); border-radius:4px 4px 0 0; min-height:2px; position:relative; opacity:.85 }
+  .bars div span { position:absolute; top:-18px; left:0; right:0; text-align:center; font-size:11px; color:var(--muted) }
+  .hbar { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:13px } .hbar .t { flex:1; height:10px; background:var(--surface2); border-radius:6px; overflow:hidden } .hbar .t i { display:block; height:100%; background:var(--primary) }
+  #sheet { position:fixed; inset:0; z-index:20; background:rgba(0,0,0,.45); display:none } #sheet.on { display:block }
+  #sheet .panel { position:absolute; right:0; top:0; bottom:0; width:min(560px,100%); background:var(--bg); overflow:auto; padding:16px 16px 60px; box-shadow:-8px 0 30px rgba(0,0,0,.2) }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:14px } .kv span:nth-child(odd) { color:var(--muted) }
+  .actions { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px }
+  #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:12px; font-size:14px; display:none; z-index:30; max-width:90% }
+  #login { max-width:380px; margin:12vh auto; padding:0 16px } #login .card { padding:22px }
+  .switch { display:flex; align-items:center; gap:10px; cursor:pointer } .switch input { width:22px; min-height:22px; height:22px }
+  a { color:var(--blue) } .hide { display:none !important }
+  @media (max-width:600px) { h2 { font-size:18px } .kpi .n { font-size:22px } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Filtro Inteligente · Administração</h1>
-  <input id="token" type="password" placeholder="Senha de administrador" size="30">
-  <button onclick="saveToken()">Entrar</button>
-  <span id="msg"></span>
-</header>
-<nav>
-  <button data-tab="resumo" class="on">Resumo</button><button data-tab="usuarios">Usuários</button>
-  <button data-tab="celulares">Celulares</button><button data-tab="cupons">Cupons</button><button data-tab="atualizacao">Atualização</button>
+<div id="login" class="hide">
+  <div style="text-align:center;margin-bottom:18px"><div class="logo" style="width:56px;height:56px;border-radius:16px;background:var(--primary);color:var(--onprimary);display:inline-grid;place-items:center;font-size:24px;font-weight:800">F</div>
+    <h1 style="margin-top:10px">Painel do Dono</h1><p class="muted">Filtro Inteligente</p></div>
+  <div class="card">
+    <label class="f">E-mail</label><input id="lEmail" type="email" autocomplete="username">
+    <label class="f">Senha</label><input id="lPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn primary" style="width:100%;margin-top:14px" onclick="doLogin()">Entrar</button>
+    <p id="lMsg" style="color:var(--red);min-height:20px"></p>
+    <details class="faint"><summary>Entrar com a senha mestra</summary><input id="lToken" type="password" style="margin-top:8px"><button class="btn small" style="margin-top:8px" onclick="tokenLogin()">Entrar</button></details>
+  </div>
+</div>
+
+<div id="app" class="hide">
+<header><div class="logo">F</div><div><h1>Painel do Dono</h1><div class="faint" id="updatedAt"></div></div>
+  <div class="who"><span id="who"></span><br><a href="#" onclick="logout();return false">sair</a></div></header>
+<nav id="tabs">
+  <button data-t="resumo" class="on">Resumo</button><button data-t="usuarios">Usuários</button><button data-t="cupons">Cupons</button>
+  <button data-t="versoes">Atualizações</button><button data-t="config">Configurações</button><button data-t="codigos">Códigos</button>
+  <button data-t="celulares">Celulares</button><button data-t="historico">Histórico</button>
 </nav>
-<main>
-  <section id="resumo"><div class="cards" id="totals"></div><p class="muted">Ativos = assinatura, cupom ou vitalício. Teste = 7 dias grátis.</p></section>
-  <section id="usuarios" hidden>
-    <div class="card"><b>Código de acesso</b> <span class="muted">(entrar sem Google: vale 1 vez, por 7 dias, ligado ao e-mail)</span>
-      <div class="row"><input id="lcEmail" placeholder="e-mail da pessoa" size="32"><button onclick="loginCode()">Gerar código</button><b id="lcOut"></b></div></div>
-    <div class="row"><input id="q" placeholder="Buscar e-mail" oninput="renderUsers()"></div><div class="wrap"><table id="users"></table></div></section>
-  <section id="celulares" hidden><div class="wrap"><table id="devices"></table></div></section>
-  <section id="cupons" hidden>
+<div class="wrap">
+  <section id="resumo">
+    <div class="grid" id="kpis" style="margin-top:14px"></div>
+    <div class="card"><h3 style="margin-top:0">Cadastros nos últimos 14 dias</h3><div class="bars" id="signups"></div></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+      <div class="card"><h3 style="margin-top:0">Versões em uso</h3><div id="versionsUse"></div></div>
+      <div class="card"><h3 style="margin-top:0">Trânsito hoje</h3><div id="trafficUse"></div></div>
+    </div>
+  </section>
+
+  <section id="usuarios" class="hide">
+    <h2>Usuários</h2>
+    <input id="q" placeholder="Buscar nome ou e-mail" oninput="renderUsers()">
+    <div class="chips" id="ufilter"></div>
+    <div class="card list" id="users"></div>
+  </section>
+
+  <section id="cupons" class="hide">
+    <h2>Cupons</h2>
     <div class="card">
-      <b>Novo cupom</b>
+      <h3 style="margin-top:0">Criar cupom</h3>
       <div class="row">
-        <input id="cCode" placeholder="Código (vazio = aleatório)">
-        <select id="cType" onchange="cDays.disabled=this.value==='lifetime'"><option value="days">Dias</option><option value="lifetime">Vitalício</option></select>
-        <input id="cDays" type="number" placeholder="Dias" value="30" style="width:90px">
-        <input id="cMax" type="number" placeholder="Usos (0 = sem limite)" style="width:170px">
-        <input id="cNote" placeholder="Anotação (ex.: irmão)">
-        <button onclick="createCoupon()">Criar</button>
+        <div class="grow"><label class="f">Código (vazio = aleatório)</label><input id="cCode" style="text-transform:uppercase"></div>
+        <div class="grow"><label class="f">Tipo</label><select id="cType" onchange="cDays.disabled=this.value==='lifetime'"><option value="days">Dias grátis</option><option value="lifetime">Vitalício</option></select></div>
+        <div class="grow"><label class="f">Dias</label><input id="cDays" type="number" value="30"></div>
+        <div class="grow"><label class="f">Limite de usos (0 = sem limite)</label><input id="cMax" type="number" value="1"></div>
+        <div class="grow"><label class="f">Vale até (opcional)</label><input id="cExp" type="date"></div>
+        <div class="grow"><label class="f">Anotação</label><input id="cNote" placeholder="ex.: irmão, promoção"></div>
       </div>
+      <button class="btn primary" style="margin-top:12px" onclick="createCoupon()">Criar cupom</button>
     </div>
-    <div class="wrap"><table id="coupons"></table></div>
+    <div class="card list" id="coupons"></div>
   </section>
-  <section id="atualizacao" hidden>
+
+  <section id="versoes" class="hide">
+    <h2>Atualizações</h2>
     <div class="card">
-      <p class="muted">Versão = número da versão do app (versionCode). Abaixo da <b>mínima</b> o app trava e manda atualizar. Abaixo da <b>mais nova</b> só avisa.</p>
-      <div class="row"><label>Mínima obrigatória <input id="uMin" type="number" style="width:110px"></label>
-      <label>Mais nova <input id="uLatest" type="number" style="width:110px"></label></div>
-      <div class="row"><input id="uUrl" placeholder="Link para baixar (Play Store ou site)" size="60"></div>
-      <div class="row"><input id="uMsg" placeholder="Mensagem para o usuário" size="60"></div>
-      <button onclick="saveConfig()">Salvar</button>
+      <h3 style="margin-top:0">Enviar nova versão</h3>
+      <p class="faint">Escolha o APK. Marque <b>Obrigatória</b> para travar o app de quem está abaixo dela; sem marcar, o app só lembra a cada 12 h.</p>
+      <input id="vFile" type="file" accept=".apk">
+      <div class="row" style="margin-top:8px"><div class="grow"><label class="f">Número (versionCode)</label><input id="vCode" type="number"></div>
+        <div class="grow"><label class="f">Nome (ex.: 3.6)</label><input id="vName"></div></div>
+      <label class="f">O que mudou (aparece para o usuário)</label><textarea id="vNotes"></textarea>
+      <label class="switch" style="margin-top:10px"><input id="vMand" type="checkbox"> Obrigatória</label>
+      <button id="vBtn" class="btn primary" style="margin-top:12px" onclick="uploadVersion()">Enviar versão</button> <span id="vProg" class="faint"></span>
+    </div>
+    <div id="versions"></div>
+  </section>
+
+  <section id="config" class="hide">
+    <h2>Configurações</h2>
+    <div class="card">
+      <h3 style="margin-top:0">Teste grátis e preços</h3>
+      <div class="row"><div class="grow"><label class="f">Dias de teste (contas novas)</label><input id="sTrial" type="number"></div>
+        <div class="grow"><label class="f">Mensal (R$)</label><input id="sMonth" type="number" step="0.01"></div>
+        <div class="grow"><label class="f">Anual (R$)</label><input id="sYear" type="number" step="0.01"></div>
+        <div class="grow"><label class="f">Consultas de trânsito por dia (por pessoa)</label><input id="sTraffic" type="number"></div></div>
+      <p class="faint">A cobrança real usa os valores cadastrados na Play Store; aqui é o que aparece no app.</p>
+      <button class="btn primary" onclick="saveSettings()">Salvar</button>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Aviso para todos</h3>
+      <p class="faint">Aparece uma vez na tela do app de todo mundo. Vazio = sem aviso.</p>
+      <textarea id="sNotice" placeholder="Ex.: Atualizamos o filtro de trânsito. Qualquer dúvida, fale no WhatsApp."></textarea>
+      <button class="btn primary" style="margin-top:8px" onclick="saveNotice()">Salvar aviso</button>
+    </div>
+    <div class="card" style="border-color:var(--red)">
+      <h3 style="margin-top:0">Modo manutenção</h3>
+      <p class="faint">Para o filtro de <b>todos</b> (menos você) até desligar. Use se algo der muito errado.</p>
+      <label class="switch"><input id="mOn" type="checkbox"> Ligado</label>
+      <label class="f">Mensagem</label><input id="mMsg" placeholder="App em manutenção. Volta em instantes.">
+      <button class="btn red" style="margin-top:10px" onclick="saveMaintenance()">Aplicar</button>
     </div>
   </section>
-</main>
+
+  <section id="codigos" class="hide">
+    <h2>Códigos</h2>
+    <div class="card"><h3 style="margin-top:0">Gerar código de acesso</h3>
+      <p class="faint">A pessoa entra sem senha (vale 1 vez, por 7 dias). Bom para suporte.</p>
+      <div class="row"><input id="lcEmail" class="grow" placeholder="e-mail da pessoa"><button class="btn primary" onclick="loginCode()">Gerar</button></div>
+      <p id="lcOut" style="font-size:22px;font-weight:800;letter-spacing:2px"></p></div>
+    <div class="card"><h3 style="margin-top:0">Códigos de e-mail esperando</h3>
+      <p class="faint">Enquanto a Amazon não libera o envio de e-mails, os códigos de confirmação e de nova senha aparecem aqui (valem 15 min).</p>
+      <div class="list" id="codes"></div></div>
+    <div class="card"><h3 style="margin-top:0">Códigos de acesso não usados</h3><div class="list" id="loginCodes"></div></div>
+  </section>
+
+  <section id="celulares" class="hide"><h2>Celulares</h2><div class="card list" id="devices"></div></section>
+  <section id="historico" class="hide"><h2>Histórico do painel</h2><p class="faint">Tudo o que foi mudado pelo painel, do mais novo para o mais antigo.</p><div class="card list" id="audit"></div></section>
+</div>
+</div>
+
+<div id="sheet" onclick="if(event.target===this)closeSheet()"><div class="panel" id="sheetBody"></div></div>
+<div id="toast"></div>
+
 <script>
-let data = null;
+let data = null, ufilter = "all";
 const $ = (id) => document.getElementById(id);
-const fmt = (t) => t ? new Date(t).toLocaleString("pt-BR") : "—";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
-const label = { active:"Ativo", trial:"Teste", expired:"Vencido", blocked:"Bloqueado", none:"—" };
-function token() { try { return localStorage.getItem("adminToken") || ""; } catch { return $("token").value; } }
-function saveToken() { try { localStorage.setItem("adminToken", $("token").value.trim()); } catch {} load(); }
+const fmt = (t) => t ? new Date(t).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", year:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
+const fday = (t) => t ? new Date(t).toLocaleDateString("pt-BR") : "—";
+const money = (v) => Number(v || 0).toLocaleString("pt-BR", { style:"currency", currency:"BRL" });
+const ago = (t) => { if (!t) return "nunca"; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m/60)} h` : `há ${Math.round(m/1440)} d`; };
+const label = { active:"Ativo", trial:"Teste", expired:"Vencido", blocked:"Bloqueado", none:"Aguardando" };
+const gender = { masculino:"Masculino", feminino:"Feminino", outro:"Outro", nao_informar:"Não informou" };
+const mem = {};
+const get = (k) => { try { return sessionStorage.getItem(k) || localStorage.getItem(k) || mem[k] || ""; } catch { return mem[k] || ""; } };
+const set = (k, v, session) => { mem[k] = v; try { const st = session ? sessionStorage : localStorage; v ? st.setItem(k, v) : (localStorage.removeItem(k), sessionStorage.removeItem(k)); } catch {} };
+function toast(m) { const t = $("toast"); t.textContent = m; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3200); }
+function name(u) { return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.name || "—"; }
+function initials(u) { const n = name(u); return n === "—" ? (u.email || "?")[0].toUpperCase() : n.split(" ").map((x) => x[0]).slice(0, 2).join("").toUpperCase(); }
+function age(b) { if (!b) return ""; return Math.floor((Date.now() - new Date(b + "T12:00:00")) / 31557600000) + " anos"; }
+function statusPill(u) { if (u.lifetime && !u.blocked) return '<span class="pill p-life">Vitalício</span>'; return `<span class="pill p-${u.status}">${label[u.status] || u.status}</span>`; }
+
+// ---------- login (no app: chega pelo endereco #s=...)
+(function fromApp() {
+  const m = location.hash.match(/s=([^&]+)/);
+  if (m) { set("adminSession", decodeURIComponent(m[1]), true); set("adminEmail", "no app", true); history.replaceState(null, "", location.pathname); }
+})();
+function show(logged) { $("login").classList.toggle("hide", logged); $("app").classList.toggle("hide", !logged); }
+async function doLogin() {
+  $("lMsg").textContent = "";
+  const r = await fetch("/admin/api/login", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ email: $("lEmail").value, password: $("lPass").value }) });
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok) { $("lMsg").textContent = j.message || "Erro"; return; }
+  set("adminSession", j.session); set("adminEmail", j.email); set("adminToken", ""); start();
+}
+function tokenLogin() { set("adminToken", $("lToken").value.trim()); set("adminSession", ""); set("adminEmail", "senha mestra"); start(); }
+function logout() { set("adminSession", ""); set("adminToken", ""); show(false); }
 async function api(path, body) {
-  const r = await fetch("/admin/api/" + path, { method:"POST", headers:{ "Content-Type":"application/json", "X-Admin-Token": token() || $("token").value.trim() }, body: JSON.stringify(body || {}) });
+  const h = { "Content-Type":"application/json" };
+  if (get("adminSession")) h["X-Admin-Session"] = get("adminSession"); else h["X-Admin-Token"] = get("adminToken");
+  const r = await fetch("/admin/api/" + path, { method:"POST", headers:h, body: JSON.stringify(body || {}) });
   const j = await r.json().catch(() => ({ ok:false, message:"Resposta inválida" }));
-  if (!j.ok) { $("msg").textContent = j.message || "Erro"; throw new Error(j.message); }
-  $("msg").textContent = ""; return j;
+  if (r.status === 401) { logout(); $("lMsg").textContent = j.message || "Entre de novo"; throw new Error("401"); }
+  if (!j.ok) { toast(j.message || "Erro"); throw new Error(j.message); }
+  return j;
 }
-async function load() { data = await api("overview"); render(); }
+async function start() { show(true); $("who").textContent = get("adminEmail"); await load(); }
+async function load() { data = await api("overview"); render(); $("updatedAt").textContent = "atualizado " + new Date().toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" }); }
+
+// ---------- abas
+document.querySelectorAll("#tabs button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".wrap > section").forEach((s) => s.classList.toggle("hide", s.id !== b.dataset.t));
+  if (b.dataset.t === "historico") loadAudit();
+  window.scrollTo(0, 0);
+});
+
 function render() {
-  const t = data.totals;
-  $("totals").innerHTML = [["Usuários", t.users], ["Ativos", t.active], ["Em teste", t.trial], ["Vencidos", t.expired], ["Bloqueados", t.blocked]]
-    .map(([k, v]) => `<div class="card"><div class="muted">${k}</div><div class="big">${v}</div></div>`).join("");
-  renderUsers(); renderDevices(); renderCoupons();
-  const c = data.appConfig || {}; $("uMin").value = c.minVersionCode || ""; $("uLatest").value = c.latestVersionCode || ""; $("uUrl").value = c.updateUrl || ""; $("uMsg").value = c.message || "";
+  const t = data.totals, s = data.stats || {};
+  const k = [["Usuários", t.users], ["Pagantes", s.paying, true], ["Em teste", t.trial], ["Vencidos", t.expired], ["Vitalícios", s.lifetime],
+    ["Abriram em 24 h", s.seen24h], ["Novos em 7 dias", s.new7d], ["Teste acaba em 3 dias", s.trialsEnding3d], ["Receita/mês (estim.)", money(s.mrr), true],
+    ["Bloqueados", t.blocked], ["Aguardando e-mail", t.pending], ["Trânsito hoje", s.trafficToday]];
+  $("kpis").innerHTML = k.map(([l, n, a]) => `<div class="card kpi ${a ? "accent" : ""}" style="margin:0"><div class="n">${n ?? 0}</div><div class="l">${l}</div></div>`).join("");
+  const su = Object.entries(s.signups || {}), mx = Math.max(1, ...su.map(([, v]) => v));
+  $("signups").innerHTML = su.map(([d, v]) => `<div title="${d}: ${v}" style="height:${Math.max(2, v / mx * 100)}%"><span>${v || ""}</span></div>`).join("");
+  const vs = Object.entries(s.versions || {}).sort((a, b) => b[0] - a[0]), vt = vs.reduce((a, [, v]) => a + v, 0) || 1;
+  $("versionsUse").innerHTML = vs.map(([v, n]) => `<div class="hbar"><span style="width:70px">${esc(versionName(v))}</span><div class="t"><i style="width:${n / vt * 100}%"></i></div><b>${n}</b></div>`).join("") || '<p class="faint">Sem dados</p>';
+  $("trafficUse").innerHTML = (s.traffic || []).sort((a, b) => b.n - a.n).slice(0, 8).map((x) => `<div class="hbar"><span class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.email)}</span><b>${x.n}</b></div>`).join("") || '<p class="faint">Nenhuma consulta hoje</p>';
+  renderUsers(); renderCoupons(); renderVersions(); renderCodes(); renderDevices();
+  const p = data.pricing || {}, c = data.appConfig || {};
+  $("sTrial").value = p.trialDays; $("sMonth").value = p.monthly; $("sYear").value = p.yearly; $("sTraffic").value = c.trafficDailyLimit || 300;
+  $("sNotice").value = c.notice?.text || ""; $("mOn").checked = !!c.maintenance?.on; $("mMsg").value = c.maintenance?.message || "";
 }
+function versionName(code) { const v = (data.versions || []).find((x) => String(x.versionCode) === String(code)); return v?.versionName ? `${v.versionName}` : `nº ${code}`; }
+
+// ---------- usuarios
+const filters = [["all", "Todos"], ["active", "Ativos"], ["trial", "Teste"], ["expired", "Vencidos"], ["blocked", "Bloqueados"], ["pending", "Aguardando"]];
 function renderUsers() {
+  $("ufilter").innerHTML = filters.map(([k, l]) => `<button class="btn small ${ufilter === k ? "primary" : ""}" onclick="ufilter='${k}';renderUsers()">${l}</button>`).join("");
   const q = ($("q").value || "").toLowerCase();
-  const rows = data.users.filter((u) => !q || (u.email || "").includes(q));
-  $("users").innerHTML = `<tr><th>E-mail</th><th>Situação</th><th>Até</th><th>Celular</th><th>Último acesso</th><th>Versão</th><th>Ações</th></tr>` + rows.map((u) => `
-    <tr><td>${esc(u.email)}<div class="muted">${esc(u.name)}</div></td>
-    <td><span class="pill ${u.status}">${label[u.status] || u.status}</span><div class="muted">${esc(u.plan || "")}</div></td>
-    <td>${u.status === "active" && !u.until ? "vitalício" : fmt(u.until)}</td><td class="muted">${esc((u.activeDevice || "").slice(0, 10))}</td>
-    <td>${fmt(u.lastSeenAt)}</td><td>${u.lastAppVersion || ""}</td>
-    <td class="actions"><button onclick="act('${u.sub}',{addDays:30})">+30 dias</button><button onclick="act('${u.sub}',{lifetime:${!u.lifetime}})">${u.lifetime ? "Tirar vitalício" : "Vitalício"}</button>
-    <button class="${u.blocked ? "" : "red"}" onclick="act('${u.sub}',{blocked:${!u.blocked},reason:prompt('Motivo (aparece para o usuário):','')||''})">${u.blocked ? "Desbloquear" : "Bloquear"}</button>
-    <button class="ghost" onclick="act('${u.sub}',{resetDevice:true})">Liberar troca de celular</button></td></tr>`).join("");
+  const rows = data.users.filter((u) => (ufilter === "all" || (ufilter === "pending" ? u.pending : u.status === ufilter)) &&
+    (!q || (u.email || "").includes(q) || name(u).toLowerCase().includes(q)));
+  $("users").innerHTML = rows.map((u) => `<div class="item" onclick="openUser('${esc(u.sub)}')"><div class="avatar">${esc(initials(u))}</div>
+    <div class="main"><b>${esc(name(u))}</b><span class="faint">${esc(u.email)}</span></div>
+    <div class="side">${statusPill(u)}<br>${u.status === "active" && !u.until ? "sem fim" : u.until ? "até " + fday(u.until) : ""}<br>${ago(u.lastSeenAt)}</div></div>`).join("") || '<p class="faint">Ninguém encontrado</p>';
+}
+async function openUser(sub) {
+  const j = await api("user-detail", { sub }); const u = j.user;
+  const S = $("sheetBody");
+  S.innerHTML = `<div class="row" style="justify-content:space-between"><button class="btn small" onclick="closeSheet()">← Voltar</button>${statusPill(u)}</div>
+  <div class="row" style="margin:14px 0"><div class="avatar" style="width:54px;height:54px;font-size:18px">${esc(initials(u))}</div><div><h2 style="margin:0">${esc(name(u))}</h2><div class="muted">${esc(u.email)}</div></div></div>
+  <div class="card kv">
+    <span>Plano</span><b>${esc(u.plan || "—")} ${u.status === "active" && !u.until ? "(sem fim)" : u.until ? "até " + fday(u.until) : ""}</b>
+    <span>Nascimento</span><span>${u.birthDate ? fday(Date.parse(u.birthDate + "T12:00:00")) + " · " + age(u.birthDate) : "—"}</span>
+    <span>Gênero</span><span>${esc(gender[u.gender] || "—")}</span>
+    <span>Entrou por</span><span>${u.google ? "Google " : ""}${u.hasPassword ? "senha " : ""}${!u.google && !u.hasPassword ? "código" : ""}</span>
+    <span>Criada</span><span>${fmt(u.createdAt)}</span><span>Último acesso</span><span>${fmt(u.lastSeenAt)} · ${ago(u.lastSeenAt)}</span>
+    <span>Versão</span><span>${esc(versionName(u.lastAppVersion || 0))}</span><span>Celular</span><span class="mono">${esc((u.activeDevice || "—").slice(0, 14))}</span>
+    ${u.blocked ? `<span>Bloqueio</span><b style="color:var(--red)">${esc(u.blockReason || "")}</b>` : ""}
+    ${u.notice?.text ? `<span>Aviso</span><span>${esc(u.notice.text)}</span>` : ""}
+    ${(u.commands || []).length ? `<span>Comandos</span><span>${u.commands.map((c) => esc(c.type + (c.day ? " " + c.day : ""))).join(", ")} (aguardando o app)</span>` : ""}
+  </div>
+  <h3>Plano</h3><div class="actions">
+    <button class="btn green" onclick="act('${u.sub}',{addDays:7})">+7 dias</button><button class="btn green" onclick="act('${u.sub}',{addDays:30})">+30 dias</button>
+    <button class="btn" onclick="askDays('${u.sub}')">+ N dias…</button><button class="btn" onclick="askUntil('${u.sub}')">Liberar até data…</button>
+    <button class="btn" onclick="act('${u.sub}',{lifetime:${!u.lifetime}})">${u.lifetime ? "Tirar vitalício" : "Dar vitalício"}</button>
+    <button class="btn red" onclick="if(confirm('Encerrar o plano agora?'))act('${u.sub}',{endPlan:true})">Encerrar plano</button></div>
+  <h3>Acesso</h3><div class="actions">
+    <button class="btn ${u.blocked ? "green" : "red"}" onclick="${u.blocked ? `act('${u.sub}',{blocked:false})` : `askBlock('${u.sub}')`}">${u.blocked ? "Desbloquear" : "Bloquear…"}</button>
+    <button class="btn" onclick="act('${u.sub}',{resetDevice:true})">Liberar troca de celular</button>
+    <button class="btn" onclick="if(confirm('A pessoa vai precisar entrar de novo. Continuar?'))act('${u.sub}',{revokeSessions:true})">Encerrar sessões</button>
+    <button class="btn" onclick="resetCode('${u.sub}')">Código p/ nova senha</button>
+    <button class="btn" onclick="accessCode('${esc(u.email)}')">Código de acesso</button>
+    ${u.pending ? `<button class="btn green" onclick="act('${u.sub}',{confirmEmail:true})">Confirmar e-mail</button>` : ""}</div>
+  <h3>Mensagens e comandos</h3><div class="actions">
+    <button class="btn" onclick="askNotice('${u.sub}')">Enviar aviso…</button>
+    <button class="btn" onclick="act('${u.sub}',{command:{type:'sync_now'}})">Pedir registros agora</button>
+    <button class="btn red" onclick="askWipe('${u.sub}')">Limpar ganhos antigos…</button></div>
+  <h3>Anotação (só você vê)</h3><textarea id="uNote">${esc(u.adminNote || "")}</textarea><button class="btn small" style="margin-top:6px" onclick="act('${u.sub}',{note:$('uNote').value},true)">Salvar anotação</button>
+  <h3>Cupons usados</h3><p>${j.coupons.map(esc).join(", ") || '<span class="faint">nenhum</span>'}</p>
+  <h3>Celulares</h3>${j.devices.map((d) => `<div class="faint">${esc(d.model || "?")} · <span class="mono">${esc(d.did.slice(0, 12))}</span> · ${d.blocked ? "bloqueado · " : ""}visto ${ago(d.lastSeen)}</div>`).join("") || '<p class="faint">—</p>'}
+  <h3>Cópias na conta</h3>${j.backups.map((b) => `<div>${b.kind === "zones" ? "Zonas" : "Ganhos e histórico"} · ${fmt(b.at)} · <a href="${esc(b.url)}">baixar</a> <span class="faint">${esc(b.meta || "")}</span></div>`).join("") || '<p class="faint">nenhuma</p>'}
+  <h3>Registros enviados</h3>${j.logs.slice(0, 15).map((f) => `<div>${fmt(f.at)} · ${esc(f.name)} · ${(f.size / 1024).toFixed(0)} KB · <a href="${esc(f.url)}">baixar</a></div>`).join("") || '<p class="faint">nenhum</p>'}
+  <h3>Eventos da conta</h3>${j.events.slice(0, 30).map((e) => `<div class="faint">${fmt(e.at)} · <b style="color:var(--text)">${esc(e.what)}</b> ${esc((e.data || "").slice(0, 120))}</div>`).join("")}
+  <h3 style="color:var(--red)">Zona de perigo</h3><button class="btn red" onclick="if(confirm('Apagar a conta de ${esc(u.email)}? Se voltar, entra como conta nova e sem teste grátis.'))act('${u.sub}',{deleteAccount:true}).then(closeSheet)">Apagar conta</button>`;
+  $("sheet").classList.add("on");
+}
+function closeSheet() { $("sheet").classList.remove("on"); }
+async function act(sub, body, quiet) { const j = await api("user", { sub, ...body }); if (!quiet) toast("Feito"); else toast("Salvo"); await load(); if ($("sheet").classList.contains("on") && !body.deleteAccount) openUser(sub); return j; }
+function askDays(sub) { const n = Number(prompt("Quantos dias dar?", "15")); if (n > 0) act(sub, { addDays: n }); }
+function askUntil(sub) { const d = prompt("Liberar até qual data? (dd/mm/aaaa)", ""); if (!d) return; const m = d.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (!m) return toast("Data inválida"); act(sub, { setUntil: `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` }); }
+function askBlock(sub) { const r = prompt("Motivo do bloqueio (aparece para a pessoa):", ""); if (r !== null) act(sub, { blocked: true, reason: r }); }
+function askNotice(sub) { const t = prompt("Aviso que vai aparecer no app da pessoa (vazio = apagar):", ""); if (t !== null) act(sub, { notice: t }); }
+function askWipe(sub) {
+  const today = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10).split("-").reverse().join("/");
+  const d = prompt("Apagar os ganhos ANTES de qual dia? (dd/mm/aaaa). O dia escolhido fica.", today); if (!d) return;
+  const m = d.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (!m) return toast("Data inválida");
+  const day = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  if (confirm(`Apagar do celular da pessoa todos os ganhos antes de ${d}? Isso não tem volta.`)) act(sub, { command: { type: "wipe_earnings_before", day } });
+}
+async function resetCode(sub) { const j = await api("user", { sub, sendReset: true }); prompt("Código para criar senha nova (vale 1 hora). Mande para a pessoa:", j.resetCode); }
+async function accessCode(email) { const j = await api("login-code", { email }); prompt("Código de acesso (vale 1 vez, 7 dias):", j.loginCode.code); load(); }
+
+// ---------- cupons
+function renderCoupons() {
+  $("coupons").innerHTML = data.coupons.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map((c) => `<div class="item" onclick="openCoupon('${esc(c.code)}')">
+    <div class="avatar" style="border-radius:12px">${c.type === "lifetime" ? "∞" : esc(c.days)}</div>
+    <div class="main"><b class="mono" style="font-size:15px">${esc(c.code)}</b><span class="faint">${c.type === "lifetime" ? "Vitalício" : c.days + " dias"} · ${esc(c.note || "")}</span></div>
+    <div class="side">${c.active === false ? '<span class="pill p-blocked">Desativado</span>' : c.expiresAt && c.expiresAt < Date.now() ? '<span class="pill p-expired">Vencido</span>' : '<span class="pill p-active">Ativo</span>'}<br>${c.uses || 0}${c.maxUses ? "/" + c.maxUses : ""} usos${c.expiresAt ? "<br>até " + fday(c.expiresAt) : ""}</div></div>`).join("") || '<p class="faint">Nenhum cupom ainda</p>';
+}
+async function openCoupon(code) {
+  const c = data.coupons.find((x) => x.code === code); const j = await api("coupon-uses", { code });
+  const exp = c.expiresAt ? new Date(c.expiresAt - 3 * 3600000).toISOString().slice(0, 10) : "";
+  $("sheetBody").innerHTML = `<button class="btn small" onclick="closeSheet()">← Voltar</button>
+    <h2 class="mono">${esc(c.code)}</h2><p class="muted">${c.type === "lifetime" ? "Vitalício" : c.days + " dias grátis"} · criado ${fday(c.createdAt)}</p>
+    <div class="card"><label class="f">Limite de usos (0 = sem limite)</label><input id="ecMax" type="number" value="${c.maxUses || 0}">
+    ${c.type === "days" ? `<label class="f">Dias</label><input id="ecDays" type="number" value="${c.days}">` : ""}
+    <label class="f">Vale até</label><input id="ecExp" type="date" value="${exp}"><label class="f">Anotação</label><input id="ecNote" value="${esc(c.note || "")}">
+    <div class="row" style="margin-top:12px"><button class="btn primary" onclick="saveCoupon('${esc(c.code)}')">Salvar</button>
+    <button class="btn ${c.active === false ? "green" : "red"}" onclick="toggleCoupon('${esc(c.code)}',${c.active === false})">${c.active === false ? "Reativar" : "Desativar"}</button>
+    <button class="btn" onclick="navigator.clipboard?.writeText('${esc(c.code)}');toast('Código copiado')">Copiar código</button></div></div>
+    <h3>Quem usou (${j.uses.length})</h3>${j.uses.map((x) => `<div class="faint">${esc(x.email)} · ${fmt(x.at)}</div>`).join("") || '<p class="faint">Ninguém ainda</p>'}`;
+  $("sheet").classList.add("on");
+}
+async function createCoupon() {
+  const j = await api("coupon", { code: $("cCode").value, type: $("cType").value, days: Number($("cDays").value), maxUses: Number($("cMax").value), expiresAt: $("cExp").value || null, note: $("cNote").value });
+  prompt("Cupom criado. Copie e mande:", j.coupon.code); $("cCode").value = ""; $("cNote").value = ""; load();
+}
+async function saveCoupon(code) {
+  const b = { code, update: true, maxUses: Number($("ecMax").value), expiresAt: $("ecExp").value || null, note: $("ecNote").value };
+  if ($("ecDays")) b.days = Number($("ecDays").value);
+  await api("coupon", b); toast("Cupom salvo"); await load(); openCoupon(code);
+}
+async function toggleCoupon(code, active) { await api("coupon", { code, update: true, active }); toast(active ? "Reativado" : "Desativado"); await load(); openCoupon(code); }
+
+// ---------- versoes
+function renderVersions() {
+  $("versions").innerHTML = (data.versions || []).map((v) => `<div class="card"><div class="row" style="justify-content:space-between">
+    <div><b style="font-size:17px">${esc(v.versionName || "")}</b> <span class="faint">nº ${v.versionCode} · ${v.size ? (v.size / 1048576).toFixed(1) + " MB" : ""}</span></div>
+    <div>${v.uploaded ? (v.active ? '<span class="pill p-active">Liberada</span>' : '<span class="pill p-expired">Escondida</span>') : '<span class="pill p-blocked">Não chegou</span>'} ${v.mandatory ? '<span class="pill p-blocked">Obrigatória</span>' : ""}</div></div>
+    <p class="muted">${esc(v.notes || "")}</p><div class="faint">Enviada ${fmt(v.uploadedAt || v.createdAt)}</div>
+    <div class="row" style="margin-top:10px"><label class="switch"><input type="checkbox" ${v.mandatory ? "checked" : ""} onchange="ver(${v.versionCode},{mandatory:this.checked})"> Obrigatória</label>
+    <label class="switch"><input type="checkbox" ${v.active ? "checked" : ""} onchange="ver(${v.versionCode},{active:this.checked})"> Liberada</label>
+    ${v.url ? `<a class="btn small" href="${esc(v.url)}">Baixar APK</a>` : ""}<button class="btn small red" onclick="if(confirm('Apagar a versão ${esc(v.versionName)}?'))ver(${v.versionCode},{remove:true})">Apagar</button></div></div>`).join("") || '<p class="faint">Nenhuma versão enviada</p>';
+}
+async function sha256(buf) { const h = await crypto.subtle.digest("SHA-256", buf); return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join(""); }
+async function uploadVersion() {
+  const f = $("vFile").files[0]; if (!f) return toast("Escolha o arquivo APK");
+  const code = Number($("vCode").value); if (!code) return toast("Informe o número da versão");
+  $("vBtn").disabled = true;
+  try {
+    $("vProg").textContent = "Lendo o arquivo…"; const buf = await f.arrayBuffer(); const hash = await sha256(buf);
+    const j = await api("version-new", { versionCode: code, versionName: $("vName").value, notes: $("vNotes").value, mandatory: $("vMand").checked, sha256: hash, replace: true });
+    await new Promise((ok, bad) => { const x = new XMLHttpRequest(); x.open("PUT", j.uploadUrl);
+      x.upload.onprogress = (e) => { if (e.lengthComputable) $("vProg").textContent = "Enviando… " + Math.round(e.loaded * 100 / e.total) + "%"; };
+      x.onload = () => x.status < 300 ? ok() : bad(new Error("Falha no envio (" + x.status + ")")); x.onerror = () => bad(new Error("Falha no envio")); x.send(buf); });
+    await api("version-done", { versionCode: code, sha256: hash });
+    $("vProg").textContent = "Versão enviada e liberada."; ["vFile", "vCode", "vName", "vNotes"].forEach((i) => $(i).value = ""); $("vMand").checked = false; load();
+  } catch (e) { $("vProg").textContent = e.message; } finally { $("vBtn").disabled = false; }
+}
+async function ver(versionCode, body) { await api("version", { versionCode, ...body }); toast("Feito"); load(); }
+
+// ---------- config, codigos, celulares, historico
+async function saveSettings() { await api("settings", { trialDays: Number($("sTrial").value), priceMonthly: Number($("sMonth").value), priceYearly: Number($("sYear").value), trafficDailyLimit: Number($("sTraffic").value) }); toast("Salvo"); load(); }
+async function saveNotice() { await api("settings", { notice: $("sNotice").value }); toast($("sNotice").value.trim() ? "Aviso enviado para todos" : "Aviso apagado"); load(); }
+async function saveMaintenance() { if ($("mOn").checked && !confirm("Parar o filtro de TODOS os usuários (menos você)?")) return; await api("settings", { maintenance: { on: $("mOn").checked, message: $("mMsg").value } }); toast($("mOn").checked ? "Manutenção LIGADA" : "Manutenção desligada"); load(); }
+async function loginCode() { const j = await api("login-code", { email: $("lcEmail").value }); $("lcOut").textContent = j.loginCode.code; load(); }
+function renderCodes() {
+  const what = { verify:"Confirmar e-mail", reset:"Nova senha" };
+  $("codes").innerHTML = (data.codes || []).map((c) => `<div class="item"><div class="main"><b>${esc(c.email)}</b><span class="faint">${what[c.purpose] || esc(c.purpose)} · vence ${fmt(c.exp)}</span></div><div class="side"><b class="mono" style="font-size:20px;color:var(--text)">${esc(c.plain)}</b></div></div>`).join("") || '<p class="faint">Nenhum código esperando.</p>';
+  $("loginCodes").innerHTML = (data.loginCodes || []).map((c) => `<div class="item"><div class="main"><b>${esc(c.email)}</b><span class="faint">vence ${fday(c.expiresAt)}</span></div><div class="side"><b class="mono" style="font-size:16px;color:var(--text)">${esc(c.code)}</b></div></div>`).join("") || '<p class="faint">Nenhum.</p>';
 }
 function renderDevices() {
-  $("devices").innerHTML = `<tr><th>Celular</th><th>Modelo</th><th>Usou teste</th><th>Último usuário</th><th>Visto</th><th>Ações</th></tr>` + data.devices.map((d) => `
-    <tr><td class="muted">${esc(d.did)}</td><td>${esc(d.model)}</td><td>${d.trialUsed ? "sim" : "não"}</td><td>${esc((data.users.find((u) => u.sub === d.lastUser) || {}).email || "")}</td><td>${fmt(d.lastSeen)}</td>
-    <td class="actions"><button class="${d.blocked ? "" : "red"}" onclick="dev('${esc(d.did)}',{blocked:${!d.blocked},reason:prompt('Motivo:','')||''})">${d.blocked ? "Desbloquear" : "Bloquear"}</button>
-    <button class="ghost" onclick="dev('${esc(d.did)}',{blocked:${!!d.blocked},resetTrial:true})">Zerar teste</button></td></tr>`).join("");
+  $("devices").innerHTML = data.devices.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)).map((d) => `<div class="item"><div class="avatar" style="border-radius:12px">📱</div>
+    <div class="main"><b>${esc(d.model || "Celular")}</b><span class="faint mono">${esc(d.did)}</span><br><span class="faint">${esc((data.users.find((u) => u.sub === d.lastUser) || {}).email || "")} · visto ${ago(d.lastSeen)} · ${d.trialUsed ? "já usou teste" : "teste livre"}</span></div>
+    <div class="side"><button class="btn small ${d.blocked ? "green" : "red"}" onclick="dev('${esc(d.did)}',{blocked:${!d.blocked},reason:${d.blocked ? "''" : "prompt('Motivo:','')||''"}})">${d.blocked ? "Desbloquear" : "Bloquear"}</button><br>
+    <button class="btn small" style="margin-top:4px" onclick="dev('${esc(d.did)}',{blocked:${!!d.blocked},resetTrial:true})">Zerar teste</button></div></div>`).join("");
 }
-function renderCoupons() {
-  $("coupons").innerHTML = `<tr><th>Código</th><th>Tipo</th><th>Usos</th><th>Anotação</th><th>Criado</th><th></th></tr>` + data.coupons.map((c) => `
-    <tr><td><b>${esc(c.code)}</b></td><td>${c.type === "lifetime" ? "Vitalício" : c.days + " dias"}</td><td>${c.uses || 0}${c.maxUses ? " / " + c.maxUses : ""}</td><td>${esc(c.note)}</td><td>${fmt(c.createdAt)}</td>
-    <td><button class="${c.active === false ? "" : "red"}" onclick="toggleCoupon('${esc(c.code)}',${c.active === false})">${c.active === false ? "Reativar" : "Desativar"}</button></td></tr>`).join("");
+async function dev(did, body) { await api("device", { did, ...body }); toast("Feito"); load(); }
+async function loadAudit() {
+  const j = await api("audit");
+  $("audit").innerHTML = j.events.map((e) => { let d = {}; try { d = JSON.parse(e.data || "{}"); } catch {}
+    const { who, ...rest } = d; return `<div class="item" style="cursor:default"><div class="main"><b>${esc(e.what)}</b><span class="faint">${esc(JSON.stringify(rest).slice(0, 140))}</span></div><div class="side">${fmt(e.at)}<br>${esc(who || "")}</div></div>`; }).join("") || '<p class="faint">Nada ainda</p>';
 }
-async function loginCode() {
-  const j = await api("login-code", { email: $("lcEmail").value });
-  $("lcOut").textContent = "Código: " + j.loginCode.code;
-}
-async function act(sub, body) { await api("user", { sub, ...body }); load(); }
-async function dev(did, body) { await api("device", { did, ...body }); load(); }
-async function createCoupon() {
-  const j = await api("coupon", { code: $("cCode").value, type: $("cType").value, days: Number($("cDays").value), maxUses: Number($("cMax").value), note: $("cNote").value });
-  alert("Cupom criado: " + j.coupon.code); $("cCode").value = ""; load();
-}
-async function toggleCoupon(code, active) { await api("coupon", { code, update: true, active }); load(); }
-async function saveConfig() {
-  await api("app-config", { minVersionCode: Number($("uMin").value), latestVersionCode: Number($("uLatest").value), updateUrl: $("uUrl").value, message: $("uMsg").value });
-  alert("Atualização salva"); load();
-}
-document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
-  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x === b));
-  document.querySelectorAll("main section").forEach((s) => s.hidden = s.id !== b.dataset.tab);
-});
-if (token()) { $("token").value = token(); load().catch(() => {}); }
+
+if (get("adminSession") || get("adminToken")) start().catch(() => {}); else show(false);
 </script>
 </body>
 </html>

@@ -640,9 +640,10 @@ class UberAccessibilityService : AccessibilityService() {
             overlayManager.hideBanner()
         }
         val activeLock = if (dualCoordinator.isActive(config)) dualCoordinator.primaryRide else null
+        // Fica DENTRO do botao ON, numa linha pequena embaixo (como o tempo do OFF): "1 corrida 99"
         val lockBadgeText = activeLock?.let { lock ->
-            val queueSuffix = if (dualCoordinator.queuedRide != null) " +1" else ""
-            "🔒 ${lock.appSource}$queueSuffix ✕"
+            val n = if (dualCoordinator.queuedRide != null) 2 else 1
+            "$n ${if (n == 1) "corrida" else "corridas"} ${lock.appSource}"
         }
         overlayManager.updateFloatingControl(
             visible = config.floatingButtonEnabled && isMonitoredApp,
@@ -1480,6 +1481,11 @@ class UberAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         val isSameOffer = parsed.fingerprint == lastFingerprint
         val appActionAt = lastActionAtByApp[parsed.appSource] ?: 0L
+        // Oferta nova: ja abre a conexao com o servidor enquanto avalia (o transito responde mais rapido)
+        if (!isSameOffer && config.trafficCheckEnabled && now - lastServerWarmAt > 60_000L) {
+            lastServerWarmAt = now
+            serviceScope.launch(Dispatchers.IO) { com.ruan.uberareafilter.account.ServerApi.warmUp() }
+        }
 
         // GPS do motorista so vale para ofertas "em espera": em corrida, a distancia ate o embarque
         // pode ser contada a partir do destino atual (e nao de onde o carro esta agora).
@@ -1491,7 +1497,10 @@ class UberAccessibilityService : AccessibilityService() {
         val evalStartedAt = System.currentTimeMillis()
         // Negocia: mesmas regras, mas com o R$/h minimo da Negocia quando ele esta ligado
         val ruleConfig = if (parsed.isNegotiable) config.forNegotiation() else config
-        val result = evaluator.evaluate(parsed, ruleConfig, driverFix)
+        val inActiveRide = dualCoordinator.primaryRide != null || now - lastActiveRideScreenAt <= 90_000L
+        // Onde voce esta agora (mesmo em corrida): decide se a corrida tira voce da sua zona
+        val herePoint = (driverFix ?: runCatching { DriverLocationProvider.current(applicationContext) }.getOrNull())?.let { it.lat to it.lng }
+        val result = evaluator.evaluate(parsed, ruleConfig, driverFix, inActiveRide, herePoint)
         val evalMs = System.currentTimeMillis() - evalStartedAt
         val conflict = dualCoordinator.evaluateOfferConflict(parsed, config)
         val wantsAutoReject = result.decision == Decision.OUTSIDE_AREA ||
@@ -1590,7 +1599,7 @@ class UberAccessibilityService : AccessibilityService() {
             (decided.decision == Decision.OUTSIDE_AREA || decided.decision == Decision.UNCERTAIN)
         ) {
             val atMin = runCatching {
-                evaluator.evaluate(NegotiationAdvisor.withPrice(parsed, negotiation.minPrice), ruleConfig, driverFix)
+                evaluator.evaluate(NegotiationAdvisor.withPrice(parsed, negotiation.minPrice), ruleConfig, driverFix, inActiveRide, herePoint)
             }.getOrNull()
             val priceOnly = atMin != null &&
                 (atMin.decision == Decision.INSIDE_AREA || atMin.decision == Decision.INTER_ZONE)
@@ -1694,7 +1703,8 @@ class UberAccessibilityService : AccessibilityService() {
 
         val blockedByConflict = conflictAction == DualRideCoordinator.ConflictAction.BLOCK_AUTO_ACCEPT_ONLY
         // Negocia que passa nas regras pelo valor do passageiro e aceita como corrida normal
-        val willAutoAccept = conflictAction != DualRideCoordinator.ConflictAction.AUTO_REJECT_OTHER_APP && when (decided.decision) {
+        // Sem o valor da corrida lido nao da para conferir R$/km e R$/h: mostra o card e voce decide
+        val willAutoAccept = parsed.ridePrice != null && conflictAction != DualRideCoordinator.ConflictAction.AUTO_REJECT_OTHER_APP && when (decided.decision) {
             Decision.INSIDE_AREA -> config.autoAcceptInsideArea && !blockedByConflict
             Decision.INTER_ZONE -> config.autoAcceptInterZone && !blockedByConflict
             else -> false
@@ -1918,7 +1928,10 @@ class UberAccessibilityService : AccessibilityService() {
                 val isInter = decided.decision == Decision.INTER_ZONE
                 val active = conflict.activeRide
                 val activeDest = active?.dropoffAddress?.ifBlank { active.pickupAddress }.orEmpty()
-                val autoOn = if (isInter) config.autoAcceptInterZone else config.autoAcceptInsideArea
+                val autoOn = (if (isInter) config.autoAcceptInterZone else config.autoAcceptInsideArea) && parsed.ridePrice != null
+                if (parsed.ridePrice == null && (if (isInter) config.autoAcceptInterZone else config.autoAcceptInsideArea)) {
+                    log("[OCR-${parsed.appSource}] Valor da corrida não lido: não aceitei sozinho (sem R$ não dá para conferir R$/km e R$/h)")
+                }
                 val titleText = when {
                     chainPlan != null -> if (blockedByConflict) "Encaixe? (${chainApp} em andamento)" else "Encaixe após a $chainApp"
                     blockedByConflict -> "🔒 Em viagem (${active?.appSource ?: "?"})"
@@ -1952,11 +1965,37 @@ class UberAccessibilityService : AccessibilityService() {
                     zoneColorHex = zoneColorHex,
                     autoHideMs = bannerHideMs
                 )
-                maybeShowBanner(insideCard)
+                // Vai conferir o transito antes de aceitar: o card nasce CINZA ("conferindo") e so depois
+                // fica na cor da zona (ok) ou vermelho (transito pesado)
+                val willCheckTraffic = !blockedByConflict && autoOn && TrafficCheck.shouldCheck(parsed, ruleConfig)
+                maybeShowBanner(
+                    if (willCheckTraffic) insideCard.copy(
+                        zoneColorHex = TRAFFIC_CHECKING_HEX,
+                        statusLabel = "CONFERINDO TRÂNSITO",
+                        checklist = "🚦 Conferindo o trânsito agora…\n${insideCard.checklist}"
+                    ) else insideCard
+                )
                 scheduleShotWithCard(statusText)
 
                 val lastAcceptAt = lastActionAtByApp[parsed.appSource] ?: 0L
                 val label = if (isInter) "Auto-aceitar entre zonas" else "Auto-aceitar"
+                if (isInter && !autoOn && TrafficCheck.shouldCheck(parsed, ruleConfig)) {
+                    // Entre zonas (voce decide): confere a rota real e mostra no card se a 99 errou (passarela, volta, transito)
+                    serviceScope.launch {
+                        val v = checkTrafficBeforeAccept(parsed, ruleConfig, driverFix) ?: return@launch
+                        if (parsed.fingerprint != lastFingerprint || !overlayManager.isBannerVisible()) return@launch
+                        val line = if (v.passes) "🚦 ${v.okSummary()}" else "✘ ${v.summary()}"
+                        overlayManager.updateRideCardContent(
+                            insideCard.copy(
+                                checklist = "$line\n${insideCard.checklist}",
+                                // Continua roxo (entre zonas, voce decide): so a linha avisa que a rota real e pior
+                                statusLabel = if (v.passes) insideCard.statusLabel else "ROTA REAL PIOR · VOCÊ DECIDE",
+                                // mantem o botao "Aceitar se tocar de novo" que ja estava no card
+                                quickActionLabel = quickLabel
+                            )
+                        )
+                    }
+                }
                 if (blockedByConflict) {
                     log("🔒 $label bloqueado $appTag: em corrida no app ${active?.appSource} (Dest: $activeDest)${chainWaitNote?.let { " • $it" } ?: ""}")
                 } else if (autoOn && now - lastAcceptAt > 1200L) {
@@ -1966,17 +2005,17 @@ class UberAccessibilityService : AccessibilityService() {
                     val trafficTried = TrafficCheck.shouldCheck(parsed, ruleConfig)
                     val traffic = checkTrafficBeforeAccept(parsed, ruleConfig, driverFix)
                     if (trafficTried && (traffic == null || traffic.passes) && overlayManager.isBannerVisible()) {
-                        // Mostra no card o resultado da consulta (ok ou sem resposta) antes do aceite
+                        // Volta para a cor da zona com o resultado (ok ou sem resposta) antes do aceite
                         val line = traffic?.let { "🚦 ${it.okSummary()}" } ?: "🚦 Trânsito sem resposta: segui a 99"
                         overlayManager.updateRideCardContent(insideCard.copy(checklist = "$line\n${insideCard.checklist}"))
                     }
                     if (traffic != null && !traffic.passes) {
                         val status = if (config.autoRejectEnabled) "RECUSANDO" else "RECUSA OFF"
-                        maybeShowBanner(
+                        val redCard = (
                             RideCardModel(
                                 decision = Decision.OUTSIDE_AREA,
                                 appSource = parsed.appSource,
-                                title = "Trânsito pesado agora",
+                                title = if (traffic.problems.any { it.startsWith("Busca real") }) "Rota real pior que a da 99" else "Trânsito pesado agora",
                                 statusLabel = status,
                                 priceText = priceFmt.ifEmpty { null },
                                 hourlyText = traffic.hourlyNow?.let { String.format(br, "R$ %.0f/h", it) } ?: hrFmt.ifEmpty { null },
@@ -1984,10 +2023,20 @@ class UberAccessibilityService : AccessibilityService() {
                                 fuelText = fuelEstimate?.costText,
                                 profitText = profitLabel,
                                 profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
-                                checklist = "✘ ${traffic.summary()}\n$finalChecklist",
+                                // Deixa claro que a ZONA estava certa: recusou so pela rota real / transito
+                                checklist = "✘ ${traffic.summary()}\n✔ Zona ok: recusei só pela rota real\n$finalChecklist",
                                 autoHideMs = bannerHideMs
                             )
                         )
+                        // Recusa igual as outras, mas com o botao "Aceitar se tocar de novo" (so 99): as vezes voce quer
+                        // ir para aquele lugar mesmo pagando mal; tocando, na proxima vez que ela vier o app aceita
+                        if (config.showRideInfoBannerEnabled) {
+                            if (override == null && signature != null && parsed.appSource == "99") {
+                                overlayManager.showRideCard(redCard.copy(quickActionLabel = QUICK_ACCEPT_LABEL)) { onQuickAcceptTapped(parsed, signature) }
+                            } else {
+                                overlayManager.showRideCard(redCard, null)
+                            }
+                        }
                         scheduleShotWithCard("TRÂNSITO")
                         log("[TRANSITO] $appTag ${traffic.summary()}: abaixo das suas regras, não aceitei")
                         if (config.autoRejectEnabled) {
@@ -2109,6 +2158,11 @@ class UberAccessibilityService : AccessibilityService() {
                 log("[CONTA] Licença conferida no servidor: ${st?.status ?: "sem resposta"}${st?.message?.let { " ($it)" } ?: ""}")
             }
         }
+        // A cada hora: manda para a conta os registros, ganhos e zonas que mudaram (fica na AWS)
+        if (now - lastAccountSyncAt > 60 * 60_000L) {
+            lastAccountSyncAt = now
+            com.ruan.uberareafilter.account.SyncManager.syncInBackground(ctx)
+        }
         if (com.ruan.uberareafilter.account.AccountGate.isLicensed(ctx)) return true
         if (now - lastLicenseBlockedLogAt > 10 * 60_000L) {
             lastLicenseBlockedLogAt = now
@@ -2127,6 +2181,12 @@ class UberAccessibilityService : AccessibilityService() {
         return false
     }
 
+    private var lastAccountSyncAt = System.currentTimeMillis() - 50 * 60_000L
+    private var lastServerWarmAt = 0L
+
+    /** Cinza do card enquanto o app confere o transito (antes de aceitar sozinho). */
+    private val TRAFFIC_CHECKING_HEX = "#64748B"
+
     private var lastTrafficFingerprint = ""
     private var lastTrafficVerdict: TrafficCheck.Verdict? = null
 
@@ -2139,27 +2199,34 @@ class UberAccessibilityService : AccessibilityService() {
         if (!TrafficCheck.shouldCheck(parsed, config)) return null
         if (parsed.fingerprint.isNotBlank() && parsed.fingerprint == lastTrafficFingerprint) return lastTrafficVerdict
         val startedAt = System.currentTimeMillis()
+        var why = "internet lenta"
         val verdict = withTimeoutOrNull(TRAFFIC_BUDGET_MS) {
             val fix = evalFix ?: runCatching { DriverLocationProvider.current(applicationContext) }.getOrNull()
-            val me = fix?.let { it.lat to it.lng } ?: return@withTimeoutOrNull null
-            val pick = parsed.pickupAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() } ?: return@withTimeoutOrNull null
-            val drop = parsed.dropoffAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() } ?: return@withTimeoutOrNull null
+            val me = fix?.let { it.lat to it.lng } ?: run { why = "sem GPS"; return@withTimeoutOrNull null }
+            val pick = parsed.pickupAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() }
+                ?: run { why = "não achei o embarque no mapa"; return@withTimeoutOrNull null }
+            val drop = parsed.dropoffAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() }
+                ?: run { why = "não achei o destino no mapa"; return@withTimeoutOrNull null }
             // Roda a parte: se a internet travar, o prazo vence e o aceite segue sem esperar a conexao
             val call = serviceScope.async(Dispatchers.IO) {
-                if (config.trafficApiKey.isNotBlank()) {
-                    TrafficRouteClient.minutesWithTraffic(config.trafficApiKey.trim(), me, pick, drop, TRAFFIC_BUDGET_MS.toInt())?.minutes
+                val car = config.trafficVehicle == "car"
+                // Chave propria do Google vai direto; a chave AWS antiga (de teste) e ignorada: tudo pelo nosso servidor
+                if (config.trafficApiKey.isNotBlank() && !TrafficCheck.isAwsKey(config.trafficApiKey)) {
+                    TrafficRouteClient.minutesWithTraffic(config.trafficApiKey.trim(), me, pick, drop, TRAFFIC_BUDGET_MS.toInt(), car = car)
+                        ?.let { TrafficCheck.Route(it.minutes, it.pickupKm, it.rideKm) }
                 } else {
-                    com.ruan.uberareafilter.account.AccountGate.trafficMinutes(applicationContext, me, pick, drop, TRAFFIC_BUDGET_MS.toInt())
+                    com.ruan.uberareafilter.account.AccountGate.trafficRoute(applicationContext, me, pick, drop, TRAFFIC_BUDGET_MS.toInt(), car = car)
                 }
             }
-            val minutes = call.await() ?: return@withTimeoutOrNull null
-            TrafficCheck.judge(parsed, minutes, config)
+            val route = call.await() ?: run { why = "servidor não respondeu"; return@withTimeoutOrNull null }
+            // Km reais de cada trecho: pega passarela / volta para atravessar que a 99 nao conta
+            TrafficCheck.judge(parsed, route.minutes, config, route.pickupKm, route.rideKm)
         }
         val ms = System.currentTimeMillis() - startedAt
         lastTrafficFingerprint = parsed.fingerprint
         lastTrafficVerdict = verdict
         if (verdict == null) {
-            log("[TRANSITO] [${parsed.appSource}] sem resposta em ${ms} ms (internet/GPS/endereço): segui a estimativa da 99")
+            log("[TRANSITO] [${parsed.appSource}] sem resposta em ${ms} ms ($why): segui a estimativa da 99")
         } else {
             log("[TRANSITO] [${parsed.appSource}] ${verdict.summary()} em ${ms} ms • ${if (verdict.passes) "passa" else "NÃO passa"} nas regras")
         }
@@ -2744,7 +2811,8 @@ class UberAccessibilityService : AccessibilityService() {
         /** Card da Negocia fica pelo menos 12 s: da tempo de ler quanto pedir antes de tocar no botao da 99. */
         private const val NEGOTIATE_CARD_MIN_MS = 12_000L
         /** Tempo maximo esperando o transito antes de aceitar pela estimativa da 99. */
-        private const val TRAFFIC_BUDGET_MS = 1_500L
+        // Ida ao nosso servidor (celular -> AWS -> mapas): 2,5 s cobre o 4G lento; sem resposta, segue a 99
+        private const val TRAFFIC_BUDGET_MS = 2_500L
 
         private const val TAG = "UberFilter"
 

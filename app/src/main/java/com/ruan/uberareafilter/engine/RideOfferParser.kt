@@ -122,7 +122,14 @@ object RideOfferParser {
         // card da Negocia ("Negocie: peca 24,30", "VOCE NEGOCIA", "NEGOCIANDO") - nunca ler como texto da 99
         "negocie",
         "voce negocia",
-        "negociando"
+        "negociando",
+        // linha do botao flutuante em corrida ("1 corrida 99") e o card cinza do transito
+        "corrida 99",
+        "corridas 99",
+        "corrida uber",
+        "corridas uber",
+        "conferindo o transito",
+        "ida e volta:"
     )
     private val ownOverlayMarkers = COMMON_OWN_OVERLAY_MARKERS
     private val ratingScreenHints = listOf(

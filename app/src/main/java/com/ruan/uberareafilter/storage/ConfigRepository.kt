@@ -164,6 +164,7 @@ class ConfigRepository(private val appContext: Context) {
             // Sem chave propria: o transito vai pelo nosso servidor (a chave da AWS fica so la)
             trafficApiKey = prefs.getString(KEY_TRAFFIC_API_KEY, "").orEmpty(),
             trafficMinTotalKm = getDouble(KEY_TRAFFIC_MIN_KM, 0.0),
+            trafficVehicle = if (prefs.getString(KEY_TRAFFIC_VEHICLE, "moto") == "car") "car" else "moto",
             useNetHourlyRate = prefs.getBoolean(KEY_USE_NET_HOURLY, false),
             filterByPricePerKmEnabled = prefs.getBoolean(KEY_FILTER_PRICE_PER_KM, false),
             minPricePerKm = getDouble(KEY_MIN_PRICE_PER_KM, 1.20),
@@ -243,6 +244,7 @@ class ConfigRepository(private val appContext: Context) {
             .putBoolean(KEY_TRAFFIC_CHECK, config.trafficCheckEnabled)
             .putString(KEY_TRAFFIC_API_KEY, config.trafficApiKey.trim())
             .putLong(KEY_TRAFFIC_MIN_KM, java.lang.Double.doubleToRawLongBits(config.trafficMinTotalKm))
+            .putString(KEY_TRAFFIC_VEHICLE, config.trafficVehicle)
             .putBoolean(KEY_USE_NET_HOURLY, config.useNetHourlyRate)
             .putBoolean(KEY_FILTER_PRICE_PER_KM, config.filterByPricePerKmEnabled)
             .putLong(KEY_MIN_PRICE_PER_KM, java.lang.Double.doubleToRawLongBits(config.minPricePerKm))
@@ -881,6 +883,7 @@ class ConfigRepository(private val appContext: Context) {
         private const val KEY_TRAFFIC_CHECK = "traffic_check_enabled"
         private const val KEY_TRAFFIC_API_KEY = "traffic_api_key"
         private const val KEY_TRAFFIC_MIN_KM = "traffic_min_total_km"
+        private const val KEY_TRAFFIC_VEHICLE = "traffic_vehicle"
         private const val KEY_USE_NET_HOURLY = "use_net_hourly_rate"
         private const val KEY_ROUND_DOWN_NET_HOURLY = "round_down_net_hourly_rate"
         private const val KEY_DARK_THEME = "dark_theme_enabled"

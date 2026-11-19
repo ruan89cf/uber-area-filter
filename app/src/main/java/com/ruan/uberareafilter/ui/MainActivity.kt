@@ -119,7 +119,9 @@ class MainActivity : AppCompatActivity() {
         observeLogsAndHistory()
         setupPolish()
 
-        if (WhatsNewActivity.shouldShowWhatsNew(this)) {
+        if (AccountDialogs.maybeShowWelcome(this)) {
+            // Acabou de entrar na conta: aviso dos dias gratis primeiro
+        } else if (WhatsNewActivity.shouldShowWhatsNew(this)) {
             startActivity(Intent(this, WhatsNewActivity::class.java))
         } else if (SetupChecks.shouldAutoOpenWizard(this) &&
             SetupChecks.a11yState(this) != SetupChecks.A11y.RUNNING
@@ -128,6 +130,12 @@ class MainActivity : AppCompatActivity() {
             SetupChecks.markWizardAutoOpened(this)
             SetupWizardActivity.open(this)
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Saiu da tela: manda para a conta o que mudou (zonas, ganhos, registros)
+        com.ruan.uberareafilter.account.SyncManager.syncInBackground(this)
     }
 
     override fun onPause() {
@@ -156,8 +164,9 @@ class MainActivity : AppCompatActivity() {
                 if (!AccountGate.isLicensed(this@MainActivity) || st?.mustUpdate == true) {
                     AccountActivity.open(this@MainActivity, locked = true)
                     finish()
-                } else if (st?.hasUpdate == true) {
-                    Toast.makeText(this@MainActivity, "Nova versão disponível: veja em Minha conta", Toast.LENGTH_LONG).show()
+                } else {
+                    AccountDialogs.maybeRemindUpdate(this@MainActivity)
+                    AccountDialogs.maybeShowNotice(this@MainActivity)
                 }
             }
         }
@@ -324,6 +333,7 @@ class MainActivity : AppCompatActivity() {
         binding.switchTrafficCheck.isChecked = config.trafficCheckEnabled
         binding.edtTrafficMinKm.setText(config.trafficMinTotalKm.toString())
         binding.edtTrafficApiKey.setText(config.trafficApiKey)
+        binding.groupTrafficVehicle.check(if (config.trafficVehicle == "car") R.id.btnVehicleCar else R.id.btnVehicleMoto)
         binding.switchUseNetHourlyRate.isChecked = config.useNetHourlyRate
         binding.switchRoundDownNetHourly.isChecked = config.roundDownNetHourlyRate
         binding.switchRoundDownNetHourly.isEnabled = config.useNetHourlyRate || config.fuelCostEnabled
@@ -388,7 +398,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, EarningsActivity::class.java))
         }
 
-        binding.btnAccount.setOnClickListener { AccountActivity.open(this, locked = false) }
+        binding.btnAccount.setOnClickListener { AccountDialogs.showAccountMenu(this, it) }
         binding.btnWhatsNew.setOnClickListener {
             val intent = Intent(this, WhatsNewActivity::class.java).apply {
                 putExtra(WhatsNewActivity.EXTRA_FROM_MAIN, true)
@@ -820,6 +830,7 @@ class MainActivity : AppCompatActivity() {
             trafficCheckEnabled = binding.switchTrafficCheck.isChecked,
             trafficMinTotalKm = binding.edtTrafficMinKm.text?.toString()?.replace(",", ".")?.toDoubleOrNull()?.coerceIn(0.0, 50.0) ?: 0.0,
             trafficApiKey = binding.edtTrafficApiKey.text?.toString()?.trim().orEmpty(),
+            trafficVehicle = if (binding.groupTrafficVehicle.checkedButtonId == R.id.btnVehicleCar) "car" else "moto",
             useNetHourlyRate = binding.switchUseNetHourlyRate.isChecked,
             roundDownNetHourlyRate = binding.switchRoundDownNetHourly.isChecked,
             showRideInfoBannerEnabled = binding.switchShowRideBanner.isChecked,

@@ -38,6 +38,22 @@ class FavoritesActivity : AppCompatActivity() {
         webView.loadUrl("file:///android_asset/favorites_map.html")
     }
 
+    /**
+     * Voltar sempre leva para a tela principal do app. Aberto pelo aviso (notificacao), o Favoritos
+     * fica sozinho numa tarefa nova: o voltar padrao fechava o app.
+     */
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (webView.canGoBack()) {
+            webView.goBack()
+            return
+        }
+        if (isTaskRoot) {
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        }
+        finish()
+    }
+
     private fun pushFavoritesToWeb() {
         val list = repository.getFavorites()
         val arr = JSONArray()

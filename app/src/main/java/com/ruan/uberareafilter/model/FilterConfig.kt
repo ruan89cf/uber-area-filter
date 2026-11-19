@@ -93,6 +93,8 @@ data class FilterConfig(
     val trafficCheckEnabled: Boolean = true,
     val trafficApiKey: String = "",
     val trafficMinTotalKm: Double = 0.0,
+    /** Veiculo usado na consulta de transito: "moto" ou "car" (o tempo muda bastante entre os dois). */
+    val trafficVehicle: String = "moto",
     val useNetHourlyRate: Boolean = false,
     // R$ minimo por KM (ex.: 1,20): abaixo disso recusa. Desligado por padrao.
     val filterByPricePerKmEnabled: Boolean = false,
@@ -158,7 +160,7 @@ data class FilterConfig(
         "rsHora" to if (filterByHourlyRateEnabled) "min $minHourlyRate liq=$useNetHourlyRate" else "off",
         "rsHoraUber" to if (uberCustomHourlyEnabled) "min $uberMinHourlyRate" else "off",
         "rsHoraNegocia" to if (negociaHourlyEnabled) "min $negociaMinHourlyRate" else "off",
-        "transito" to if (trafficCheckEnabled) "a partir de ${trafficMinTotalKm}km chave=${if (trafficApiKey.isBlank()) "falta" else "ok"}" else "off",
+        "transito" to if (trafficCheckEnabled) "a partir de ${trafficMinTotalKm}km ${if (trafficVehicle == "car") "carro" else "moto"} via ${if (trafficApiKey.isBlank()) "servidor" else "chave própria"}" else "off",
         "rsKm" to if (filterByPricePerKmEnabled) "min $minPricePerKm" else "off",
         "combustivel" to if (fuelCostEnabled) "$fuelType R$$fuelPricePerUnit ${kmPerUnit}km" else "off",
         "zonas" to "${mapZones.count { it.mode == ZoneMode.ALLOWED }} perm/${mapZones.count { it.mode == ZoneMode.BLOCKED }} proib",

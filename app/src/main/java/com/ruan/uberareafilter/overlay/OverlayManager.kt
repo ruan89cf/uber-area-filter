@@ -421,9 +421,12 @@ class OverlayManager(private val context: Context) {
             CardLevel.LARGE -> chips
             CardLevel.NORMAL -> {
                 val problems = chips.filter { it.mark != Mark.OK }
-                val okCount = chips.count { it.mark == Mark.OK }
+                // Embarque e destino (dentro/fora da zona) tambem contam: antes dava "5/5 ok" numa corrida recusada pela zona
+                val areaItems = details.filter { it.mark == Mark.OK || it.mark == Mark.BAD || it.mark == Mark.WARN }
+                val okCount = chips.count { it.mark == Mark.OK } + areaItems.count { it.mark == Mark.OK }
+                val total = chips.size + areaItems.size
                 // "3/5 ok": de quantos criterios a corrida passou (o numero fica vermelho quando falta algum)
-                if (okCount > 0) problems + CheckItem(Mark.OK, "$okCount/${chips.size} ok") else problems
+                if (okCount > 0) problems + CheckItem(Mark.OK, "$okCount/$total ok") else problems
             }
         }
         cardChecks?.apply {
@@ -868,6 +871,25 @@ class OverlayManager(private val context: Context) {
                     pill.contentDescription = "Desligado."
                 }
             }
+            // Em corrida: linha pequena DENTRO do botao ("1 corrida 99"), em vez de um terceiro botao.
+            // Tocar nessa linha libera a trava (como o antigo botao "🔒 99 ✕").
+            val rideLine = rideLockBadgeText?.takeIf { it.isNotBlank() && onReleaseRideLock != null }
+            rideLineActive = rideLine != null
+            if (rideLine != null) {
+                pill.text = SpannableStringBuilder(pill.text).append("\n").append(
+                    SpannableStringBuilder("🔒 $rideLine").apply {
+                        setSpan(RelativeSizeSpan(0.62f), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        setSpan(android.text.style.ForegroundColorSpan(Color.parseColor(if (is99 && runState == com.ruan.uberareafilter.model.RunState.ON) "#7A4A00" else "#FDE68A")), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                )
+                pill.contentDescription = "${pill.contentDescription} Em corrida: $rideLine. Toque na linha de baixo para liberar a trava."
+            }
+            pill.isSingleLine = rideLine == null
+            pill.maxLines = if (rideLine == null) 1 else 2
+            (pill.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+                val h = if (rideLine == null) dp(46) else dp(60)
+                if (lp.height != h) { lp.height = h; pill.layoutParams = lp }
+            }
             pill.setPadding(dp(10), 0, dp(10), 0)
             // Garante que a janela acompanha o conteudo (texto sempre inteiro)
             floatingRootView?.let { root ->
@@ -875,9 +897,15 @@ class OverlayManager(private val context: Context) {
                 floatingParams?.let { lp -> runCatching { windowManager.updateViewLayout(root, lp) } }
             }
 
-            updateRideLockChipOnMain(rideLockBadgeText, onReleaseRideLock)
+            // O terceiro botao (etiqueta da trava) nao existe mais: some se ainda estiver na tela
+            updateRideLockChipOnMain(null, onReleaseRideLock)
+            currentRideLockReleaseCallback = onReleaseRideLock
         }
     }
+
+    /** Botao mostrando "1 corrida 99" embaixo do ON (toque nessa linha libera a trava). */
+    @Volatile
+    private var rideLineActive = false
 
     private fun updateRideLockChipOnMain(badgeText: String?, onRelease: (() -> Unit)?) {
         currentRideLockReleaseCallback = onRelease
@@ -1342,9 +1370,14 @@ class OverlayManager(private val context: Context) {
                         ) {
                             // Metade de cima (icone + pescoco) abre o app; o resto liga/pausa
                             val onLogo = event.y < logo.bottom + dp(3)
+                            // Linha "1 corrida 99" (parte de baixo do botao): libera a trava da corrida
+                            val onRideLine = rideLineActive && event.y > pill.top + pill.height * 0.58f
                             if (onLogo && onOpenApp != null) {
                                 performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                                 onOpenApp()
+                            } else if (onRideLine && currentRideLockReleaseCallback != null) {
+                                performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                                currentRideLockReleaseCallback?.invoke()
                             } else {
                                 onToggleFilter()
                             }

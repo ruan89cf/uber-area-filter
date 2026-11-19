@@ -71,4 +71,42 @@ class TrafficCheckTest {
         assertTrue(TrafficCheck.isAwsKey("v1.public.eyJqdGkiOi..."))
         assertFalse(TrafficCheck.isAwsKey("AIzaSyExemplo"))
     }
+
+    @Test
+    fun realKmCatchesThePasserelaDetour() {
+        // A 99 diz busca de 1,8 km (a pe pela passarela); de moto/carro a volta real e 3,6 km
+        val v = TrafficCheck.judge(ride36(), 12.0, cfg, pickupKm = 3.6, rideKm = 2.3)
+        assertFalse(v.passes)
+        assertTrue(v.summary(), v.summary().contains("Busca real 3,6 km (a 99 dizia 1,8): passarela ou volta"))
+        // Rota real parecida com a da 99: passa e mostra os km reais
+        val ok = TrafficCheck.judge(ride36(), 11.0, cfg, pickupKm = 1.9, rideKm = 2.3)
+        assertTrue(ok.passes)
+        assertTrue(ok.okSummary(), ok.okSummary().contains("4,2 km reais"))
+    }
+
+    @Test
+    fun realKmAboveMaxPickupOrBelowPricePerKmFails() {
+        val withPickup = cfg.copy(filterByPickupDistEnabled = true, maxPickupDistanceKm = 2.5)
+        // 15:25 de 19/11: busca real 2,1 km com maximo 2,0 -> passa (folga de 0,5 km para GPS/ponto do endereco)
+        assertTrue(TrafficCheck.judge(ride36(), 11.0, withPickup.copy(maxPickupDistanceKm = 2.0), pickupKm = 2.1, rideKm = 2.3).passes)
+        val far = TrafficCheck.judge(ride36(), 11.0, withPickup, pickupKm = 3.1, rideKm = 2.3)
+        assertFalse(far.passes)
+        assertTrue(far.summary(), far.summary().contains("Busca real 3,1 km (máx 2,5)"))
+        // R$/km com os km reais: R$ 7,40 / 6,0 km = R$ 1,23 < R$ 1,50
+        val perKm = cfg.copy(filterByPricePerKmEnabled = true, minPricePerKm = 1.50, filterByPickupDistEnabled = false)
+        val low = TrafficCheck.judge(ride36(), 11.0, perKm, pickupKm = 2.0, rideKm = 4.0)
+        assertFalse(low.passes)
+        assertEquals(1.23, low.offerNow.pricePerKm!!, 0.01)
+        // Rota real menor que a da 99 nunca melhora a corrida
+        val shorter = TrafficCheck.judge(ride36(), 11.0, cfg, pickupKm = 1.0, rideKm = 1.0)
+        assertEquals(4.1, shorter.offerNow.totalDistanceKm!!, 0.001)
+    }
+
+    @Test
+    fun awsLegKmAreRead() {
+        val json = """{"Routes":[{"Legs":[{"VehicleLegDetails":{"Summary":{"Overview":{"BestCaseDuration":295,"Distance":2029,"Duration":304}}}},""" +
+            """{"VehicleLegDetails":{"Summary":{"Overview":{"Distance":814,"Duration":125}}}}],"Summary":{"Distance":2843,"Duration":429}}]}"""
+        assertEquals(listOf(2.029, 0.814), TrafficCheck.parseAwsLegKm(json))
+        assertEquals(7.15, TrafficCheck.parseAwsDurationMinutes(json)!!, 0.01)
+    }
 }
