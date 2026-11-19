@@ -60,4 +60,15 @@ class TrafficCheckTest {
         assertEquals(25.0, TrafficCheck.parseDurationMinutes("""{"routes":[{"duration":"1500s"}]}""")!!, 0.001)
         assertNull(TrafficCheck.parseDurationMinutes("""{"error":{"code":403}}"""))
     }
+
+    @Test
+    fun awsResponseIsRead() {
+        // fim da resposta real da Amazon Location (18/11 21:57, voce -> embarque -> destino, modo moto)
+        val json = """{"Routes":[{"Legs":[{"VehicleLegDetails":{"TravelSteps":[{"Distance":71,"Duration":22}]}}],""" +
+            """"MajorRoadLabels":[{"RoadName":{"Language":"pt","Value":"Avenida Brasil"}}],"Summary":{"Distance":5074,"Duration":900}}]}"""
+        assertEquals(15.0, TrafficCheck.parseAwsDurationMinutes(json)!!, 0.001)
+        assertNull(TrafficCheck.parseAwsDurationMinutes("""{"message":"Forbidden"}"""))
+        assertTrue(TrafficCheck.isAwsKey("v1.public.eyJqdGkiOi..."))
+        assertFalse(TrafficCheck.isAwsKey("AIzaSyExemplo"))
+    }
 }

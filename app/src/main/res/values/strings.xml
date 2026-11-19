@@ -99,7 +99,7 @@
     <string name="main_negocia_hourly">Mínimo por hora diferente na Negocia (99)</string>
     <string name="main_traffic_check">Conferir o trânsito antes de aceitar</string>
     <string name="main_hint_traffic_km">A partir de km</string>
-    <string name="main_hint_traffic_key">Chave do Google (Routes API)</string>
+    <string name="main_hint_traffic_key">Chave do trânsito (AWS ou Google)</string>
     <string name="main_dist_sub">Não rodar longe para buscar nem para levar.</string>
     <string name="main_dist_title">Distância</string>
     <string name="main_filter_total_dist">Tamanho máximo da corrida (busca + viagem)</string>

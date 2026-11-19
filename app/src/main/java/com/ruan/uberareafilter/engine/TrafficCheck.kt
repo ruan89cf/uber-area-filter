@@ -63,6 +63,15 @@ object TrafficCheck {
         return Verdict(trafficMinutes, est, hourlyNow, passes, offerNow)
     }
 
+    /** AWS (Amazon Location Routes v2): o resumo da ROTA e o ultimo "Summary" da resposta. */
+    fun parseAwsDurationMinutes(json: String): Double? {
+        val m = Regex(""""Summary"\s*:\s*\{[^{}]*?"Duration"\s*:\s*(\d+(?:\.\d+)?)""").findAll(json).lastOrNull() ?: return null
+        return m.groupValues[1].toDoubleOrNull()?.div(60.0)
+    }
+
+    /** Chave da AWS (Amazon Location) comeca com "v1.public."; o resto e tratado como Google. */
+    fun isAwsKey(key: String): Boolean = key.trim().startsWith("v1.public.")
+
     /** "1234s" (Google Routes) -> minutos. */
     fun parseDurationMinutes(json: String): Double? {
         val m = Regex(""""duration"\s*:\s*"(\d+(?:\.\d+)?)s"""").find(json) ?: return null
