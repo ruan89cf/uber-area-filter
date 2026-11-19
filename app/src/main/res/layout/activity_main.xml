@@ -102,6 +102,16 @@
             android:contentDescription="@string/main_btn_whats_new"
             android:tooltipText="@string/main_btn_whats_new"
             app:icon="@drawable/ic_sparkle" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAccount"
+            style="@style/Widget.Filtro.Button.TopIcon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:contentDescription="Minha conta e plano"
+            android:tooltipText="Minha conta e plano"
+            app:icon="@drawable/ic_person" />
     </LinearLayout>
 
     <View

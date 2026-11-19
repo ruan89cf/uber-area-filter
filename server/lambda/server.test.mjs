@@ -121,3 +121,24 @@ test("ids estranhos sao limpos antes de ir para o painel", async () => {
   const devices = (await call("/admin/api/overview", {}, true)).body.devices;
   assert.ok(devices.every((d) => /^[A-Za-z0-9_-]+$/.test(d.did)));
 });
+
+test("codigo de acesso: entra uma vez so, ligado ao e-mail", async () => {
+  const c = await call("/admin/api/login-code", { email: "Irmao@Gmail.com" }, true);
+  assert.equal(c.status, 200);
+  const code = c.body.loginCode.code;
+  const r = await call("/v1/auth/code", { code: code.toLowerCase(), deviceId: "cel-code", appVersion: 21 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.account.email, "irmao@gmail.com");
+  assert.equal(r.body.status, "trial");
+  const again = await call("/v1/auth/code", { code, deviceId: "cel-code2", appVersion: 21 });
+  assert.equal(again.body.code, "CODE_INVALID");
+});
+
+test("APK modificado nao recebe licenca quando o certificado esta configurado", async () => {
+  process.env.APK_CERT_SHA256 = "ab".repeat(32);
+  const bad = await call("/admin/api/test-login", { email: "m@x.com", deviceId: "cel-M", cert: "00".repeat(32) }, true);
+  assert.equal(bad.body.code, "APP_MODIFIED");
+  const good = await call("/admin/api/test-login", { email: "m@x.com", deviceId: "cel-M", cert: "AB".repeat(32) }, true);
+  assert.equal(good.status, 200);
+  delete process.env.APK_CERT_SHA256;
+});

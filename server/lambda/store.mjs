@@ -65,6 +65,8 @@ export const store = {
     await b.put(`COUPON#${code}`, `USED#${sub}`, { at });
     await b.add(`COUPON#${code}`, "META", "uses", 1);
   },
+  async getLoginCode(code) { return strip(await (await backend()).get(`LOGINCODE#${code}`, "META")); },
+  async putLoginCode(lc) { await (await backend()).put(`LOGINCODE#${lc.code}`, "META", lc); },
   async getAppConfig() { return strip(await (await backend()).get("CONFIG", "APP")) || {}; },
   async putAppConfig(cfg) { await (await backend()).put("CONFIG", "APP", cfg); },
   async getPurchaseOwner(token) { return (await (await backend()).get(`PURCHASE#${token.slice(0, 200)}`, "META"))?.sub || null; },

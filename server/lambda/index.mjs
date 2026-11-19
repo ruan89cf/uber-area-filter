@@ -155,7 +155,15 @@ async function statusPayload(user, did, appVersion, priv) {
   };
 }
 
+/** APK modificado (assinado por outra chave) nao recebe licenca. So vale com APK_CERT_SHA256 definido. */
+function certOk(body) {
+  const want = (env.APK_CERT_SHA256 || "").toLowerCase().replace(/[^0-9a-f]/g, "");
+  if (!want) return true;
+  return String(body?.cert || "").toLowerCase() === want;
+}
+
 async function sessionFrom(body, pub) {
+  if (!certOk(body)) return { err: fail(403, "APP_MODIFIED", "Este app foi modificado. Baixe a versão oficial.") };
   const s = verifyToken(body?.session, pub, "ses");
   if (!s) return { err: fail(401, "SESSION_INVALID", "Faça login de novo") };
   const user = await store.getUser(s.sub);
@@ -181,6 +189,7 @@ async function routeLogin(body, now = Date.now()) {
 
 export async function finishLogin(g, did, body, now = Date.now()) {
   const { priv } = keys();
+  if (!certOk(body)) return fail(403, "APP_MODIFIED", "Este app foi modificado. Baixe a versão oficial.");
   let device = await store.getDevice(did);
   if (device?.blocked) return fail(403, "DEVICE_BLOCKED", device.blockReason || "Este celular foi bloqueado");
   let user = await store.getUser(g.sub);
@@ -208,6 +217,19 @@ export async function finishLogin(g, did, body, now = Date.now()) {
   await store.log(g.sub, isNew ? "conta criada" : "login", { did, trial: trial.grant ? "7 dias" : trial.why });
   const session = signToken({ typ: "ses", sub: g.sub, did, iat: now, exp: now + SESSION_TTL }, priv);
   return json(200, { ...(await statusPayload(user, did, body?.appVersion, priv)), session, trialGranted: trial.grant, trialNote: trial.grant ? "" : trial.why });
+}
+
+/** Entrar com codigo de acesso (criado no painel, vale 1 vez, ligado a um e-mail). Testes e suporte. */
+async function routeLoginCode(body, now = Date.now()) {
+  const did = cleanId(body?.deviceId);
+  const code = cleanCode(body?.code);
+  if (!did || !code) return fail(400, "BAD_REQUEST", "Digite o código de acesso");
+  const lc = await store.getLoginCode(code);
+  if (!lc || lc.used || (lc.expiresAt && lc.expiresAt < now)) return fail(401, "CODE_INVALID", "Código inválido ou já usado");
+  lc.used = true; lc.usedAt = now; lc.usedDevice = did;
+  await store.putLoginCode(lc);
+  const sub = "code-" + crypto.createHash("sha256").update(lc.email).digest("hex").slice(0, 20);
+  return finishLogin({ sub, email: lc.email, name: "" }, did, body, now);
 }
 
 async function routeLicense(body) {
@@ -356,6 +378,14 @@ async function routeAdmin(path, body) {
       await store.putAppConfig(cfg);
       return json(200, { ok: true, appConfig: cfg });
     }
+    case "/admin/api/login-code": {
+      const email = String(body.email || "").trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+$/.test(email)) return fail(400, "BAD_REQUEST", "Informe um e-mail válido");
+      const code = crypto.randomBytes(5).toString("hex").toUpperCase();
+      const lc = { code, email, used: false, createdAt: now, expiresAt: now + 7 * DAY };
+      await store.putLoginCode(lc);
+      return json(200, { ok: true, loginCode: lc });
+    }
     case "/admin/api/logs":
       return json(200, { ok: true, logs: await store.listLogs(body.sub) });
     case "/admin/api/test-login": {
@@ -396,6 +426,7 @@ export async function handler(event) {
     if (method !== "POST") return fail(405, "METHOD", "Use POST");
     switch (path) {
       case "/v1/auth/google": return await routeLogin(body);
+      case "/v1/auth/code": return await routeLoginCode(body);
       case "/v1/license": return await routeLicense(body);
       case "/v1/coupon/redeem": return await routeRedeem(body);
       case "/v1/billing/verify": return await routeBilling(body);

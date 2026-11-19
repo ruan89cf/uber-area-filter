@@ -19,7 +19,7 @@ object TrafficCheck {
 
     /** Deve consultar? So corrida que ja passou em tudo; abaixo do km minimo so se tiver Av. Brasil. */
     fun shouldCheck(offer: ParsedRideOffer, config: FilterConfig): Boolean {
-        if (!config.trafficCheckEnabled || config.trafficApiKey.isBlank()) return false
+        if (!config.trafficCheckEnabled) return false
         val total = offer.totalDistanceKm ?: return true
         if (total + 1e-9 >= config.trafficMinTotalKm) return true
         val text = TextNormalizer.normalize("${offer.pickupAddress.orEmpty()} ${offer.dropoffAddress.orEmpty()}")

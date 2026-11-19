@@ -13,13 +13,14 @@ android {
         applicationId = "com.ruan.uberareafilter"
         minSdk = 30
         targetSdk = 34
-        versionCode = 21
-        versionName = "2.7"
+        versionCode = 22
+        versionName = "3.0"
 
-        // Chave padrao do transito para testes (traffic.properties na raiz, fora do git)
-        val trafficProps = Properties()
-        rootProject.file("traffic.properties").takeIf { it.exists() }?.inputStream()?.use { trafficProps.load(it) }
-        buildConfigField("String", "TRAFFIC_DEFAULT_KEY", "\"${trafficProps.getProperty("awsRoutesKey", "")}\"")
+
+        // ID do cliente Web do Google (login). google.properties na raiz, linha: webClientId=xxxx.apps.googleusercontent.com
+        val googleProps = Properties()
+        rootProject.file("google.properties").takeIf { it.exists() }?.inputStream()?.use { googleProps.load(it) }
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${googleProps.getProperty("webClientId", "")}\"")
     }
 
     signingConfigs {
@@ -43,7 +44,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -89,6 +90,11 @@ dependencies {
     implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
     implementation("org.conscrypt:conscrypt-android:2.5.3")
+    // Conta: login Google (Credential Manager) e assinatura pelo Google Play
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("com.android.billingclient:billing-ktx:7.1.1")
     testImplementation("junit:junit:4.13.2")
 }
 

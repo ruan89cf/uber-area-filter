@@ -1,5 +1,7 @@
 package com.ruan.uberareafilter.ui
 
+import com.ruan.uberareafilter.account.AccountGate
+
 import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
@@ -98,6 +100,12 @@ class MainActivity : AppCompatActivity() {
         repository = ConfigRepository(this)
         applyThemeMode(repository.load().darkThemeEnabled)
         super.onCreate(savedInstanceState)
+        // Sem login/plano valido o app nao abre: vai para a tela da conta
+        if (!AccountGate.isLicensed(this)) {
+            AccountActivity.open(this, locked = true)
+            finish()
+            return
+        }
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -139,6 +147,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!::binding.isInitialized) return
+        // Confere a licenca no servidor; se a conta foi bloqueada/vencida/outro celular, trava o app
+        if (AccountGate.needsRefresh(this)) {
+            lifecycleScope.launch {
+                AccountGate.refresh(this@MainActivity)
+                val st = AccountGate.state(this@MainActivity)
+                if (!AccountGate.isLicensed(this@MainActivity) || st?.mustUpdate == true) {
+                    AccountActivity.open(this@MainActivity, locked = true)
+                    finish()
+                } else if (st?.hasUpdate == true) {
+                    Toast.makeText(this@MainActivity, "Nova versão disponível: veja em Minha conta", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
         statusRechecks = 0
         loadConfigIntoUi()
         renderRideHistory(repository.getRideHistory())
@@ -366,6 +388,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, EarningsActivity::class.java))
         }
 
+        binding.btnAccount.setOnClickListener { AccountActivity.open(this, locked = false) }
         binding.btnWhatsNew.setOnClickListener {
             val intent = Intent(this, WhatsNewActivity::class.java).apply {
                 putExtra(WhatsNewActivity.EXTRA_FROM_MAIN, true)

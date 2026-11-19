@@ -46,7 +46,7 @@ class TrafficCheckTest {
     @Test
     fun whenToCheck() {
         assertTrue(TrafficCheck.shouldCheck(ride36(), cfg))                                   // 0 km = todas
-        assertFalse(TrafficCheck.shouldCheck(ride36(), cfg.copy(trafficApiKey = "")))        // sem chave: nao consulta
+        assertTrue(TrafficCheck.shouldCheck(ride36(), cfg.copy(trafficApiKey = "")))         // sem chave: vai pelo servidor
         assertFalse(TrafficCheck.shouldCheck(ride36(), cfg.copy(trafficCheckEnabled = false)))
         val from25 = cfg.copy(trafficMinTotalKm = 2.5)
         assertTrue(TrafficCheck.shouldCheck(ride36(total = 4.1), from25))

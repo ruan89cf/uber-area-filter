@@ -161,9 +161,8 @@ class ConfigRepository(private val appContext: Context) {
             negociaHourlyEnabled = prefs.getBoolean(KEY_NEGOCIA_HOURLY, false),
             negociaMinHourlyRate = getDouble(KEY_NEGOCIA_MIN_HOURLY, 40.0),
             trafficCheckEnabled = prefs.getBoolean(KEY_TRAFFIC_CHECK, true),
-            // Sem chave salva: usa a chave padrao de testes embutida no build (se houver)
-            trafficApiKey = prefs.getString(KEY_TRAFFIC_API_KEY, "").orEmpty()
-                .ifBlank { com.ruan.uberareafilter.BuildConfig.TRAFFIC_DEFAULT_KEY },
+            // Sem chave propria: o transito vai pelo nosso servidor (a chave da AWS fica so la)
+            trafficApiKey = prefs.getString(KEY_TRAFFIC_API_KEY, "").orEmpty(),
             trafficMinTotalKm = getDouble(KEY_TRAFFIC_MIN_KM, 0.0),
             useNetHourlyRate = prefs.getBoolean(KEY_USE_NET_HOURLY, false),
             filterByPricePerKmEnabled = prefs.getBoolean(KEY_FILTER_PRICE_PER_KM, false),

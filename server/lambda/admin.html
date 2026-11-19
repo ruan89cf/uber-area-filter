@@ -32,7 +32,10 @@
 </nav>
 <main>
   <section id="resumo"><div class="cards" id="totals"></div><p class="muted">Ativos = assinatura, cupom ou vitalício. Teste = 7 dias grátis.</p></section>
-  <section id="usuarios" hidden><div class="row"><input id="q" placeholder="Buscar e-mail" oninput="renderUsers()"></div><div class="wrap"><table id="users"></table></div></section>
+  <section id="usuarios" hidden>
+    <div class="card"><b>Código de acesso</b> <span class="muted">(entrar sem Google: vale 1 vez, por 7 dias, ligado ao e-mail)</span>
+      <div class="row"><input id="lcEmail" placeholder="e-mail da pessoa" size="32"><button onclick="loginCode()">Gerar código</button><b id="lcOut"></b></div></div>
+    <div class="row"><input id="q" placeholder="Buscar e-mail" oninput="renderUsers()"></div><div class="wrap"><table id="users"></table></div></section>
   <section id="celulares" hidden><div class="wrap"><table id="devices"></table></div></section>
   <section id="cupons" hidden>
     <div class="card">
@@ -103,6 +106,10 @@ function renderCoupons() {
   $("coupons").innerHTML = `<tr><th>Código</th><th>Tipo</th><th>Usos</th><th>Anotação</th><th>Criado</th><th></th></tr>` + data.coupons.map((c) => `
     <tr><td><b>${esc(c.code)}</b></td><td>${c.type === "lifetime" ? "Vitalício" : c.days + " dias"}</td><td>${c.uses || 0}${c.maxUses ? " / " + c.maxUses : ""}</td><td>${esc(c.note)}</td><td>${fmt(c.createdAt)}</td>
     <td><button class="${c.active === false ? "" : "red"}" onclick="toggleCoupon('${esc(c.code)}',${c.active === false})">${c.active === false ? "Reativar" : "Desativar"}</button></td></tr>`).join("");
+}
+async function loginCode() {
+  const j = await api("login-code", { email: $("lcEmail").value });
+  $("lcOut").textContent = "Código: " + j.loginCode.code;
 }
 async function act(sub, body) { await api("user", { sub, ...body }); load(); }
 async function dev(did, body) { await api("device", { did, ...body }); load(); }

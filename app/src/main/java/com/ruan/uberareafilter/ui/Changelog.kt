@@ -12,6 +12,13 @@ object Changelog {
 
     val releases: List<Release> = listOf(
         Release(
+            versionCode = 22, versionName = "3.0", date = "19/11/2026",
+            items = listOf(
+                Item("🔐", "Conta obrigatória", "Agora o app funciona com conta: entre com o Google (ou com um código de acesso). Conta nova em celular novo ganha 7 dias grátis. Depois, assinatura mensal ou anual pelo Google Play, ou cupom."),
+                Item("☁️", "Ligado ao servidor", "O plano é conferido no nosso servidor e o trânsito também passa por ele. Sem internet ou sem plano, o filtro para e avisa. Toque no ícone de pessoa no topo para ver seu plano, usar cupom e assinar.")
+            )
+        ),
+        Release(
             versionCode = 21, versionName = "2.7", date = "18/11/2026",
             items = listOf(
                 Item("🚦", "Trânsito de agora antes de aceitar", "Último passo antes de aceitar sozinho: o app pergunta ao Google quanto tempo a corrida leva com o trânsito de agora e refaz o R$/h. Av. Brasil parada e o R$ 40/h virou R$ 16/h? Ele não aceita. Sem chave, sem internet ou sem resposta em 1,5 s, aceita normal pela estimativa da 99. Precisa da chave grátis do Google em Filtros → “Conferir o trânsito antes de aceitar”.")

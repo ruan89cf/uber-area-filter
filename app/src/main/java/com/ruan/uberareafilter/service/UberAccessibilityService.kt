@@ -812,6 +812,8 @@ class UberAccessibilityService : AccessibilityService() {
         visibleState: VisibleDriverState,
         quietProbeOnly: Boolean = false
     ) {
+        // Sem licenca valida (login, plano, este celular) o leitor de tela nao faz nada
+        if (!licenseAllowsWork()) return
         // Usa exclusivamente takeScreenshot + ML Kit OCR + Roteador Modular (99 / Uber) + Inspecao Visual de Pixels
         val frameStartedAt = System.currentTimeMillis()
         val bitmap = captureScreenBitmap() ?: return
@@ -2089,6 +2091,42 @@ class UberAccessibilityService : AccessibilityService() {
 
     private fun fmtBr(v: Double): String = String.format(Locale("pt", "BR"), "%.2f", v)
 
+    private var lastLicenseRefreshTryAt = 0L
+    private var lastLicenseBlockedLogAt = 0L
+    private var lastLicenseCardAt = 0L
+
+    /**
+     * Licenca assinada pelo servidor: valida, deste celular, dentro do prazo. Renova sozinha em segundo plano
+     * (no maximo a cada 5 min). Sem licenca: nao le a tela e avisa (no card) para abrir o app.
+     */
+    private fun licenseAllowsWork(): Boolean {
+        val now = System.currentTimeMillis()
+        val ctx = applicationContext
+        if (com.ruan.uberareafilter.account.AccountGate.needsRefresh(ctx) && now - lastLicenseRefreshTryAt > 5 * 60_000L) {
+            lastLicenseRefreshTryAt = now
+            serviceScope.launch(Dispatchers.IO) {
+                val st = com.ruan.uberareafilter.account.AccountGate.refresh(ctx)
+                log("[CONTA] Licença conferida no servidor: ${st?.status ?: "sem resposta"}${st?.message?.let { " ($it)" } ?: ""}")
+            }
+        }
+        if (com.ruan.uberareafilter.account.AccountGate.isLicensed(ctx)) return true
+        if (now - lastLicenseBlockedLogAt > 10 * 60_000L) {
+            lastLicenseBlockedLogAt = now
+            log("[CONTA] Sem licença válida (login, plano ou internet): leitor de tela parado")
+        }
+        if (now - lastLicenseCardAt > 60_000L) {
+            lastLicenseCardAt = now
+            overlayManager.showRideStatus(
+                decision = Decision.UNCERTAIN,
+                headline = "Filtro parado",
+                detailLine = com.ruan.uberareafilter.account.AccountGate.state(ctx)?.message
+                    ?: "Abra o Filtro Inteligente: entre na conta ou confira seu plano",
+                autoHideMs = 4000L
+            )
+        }
+        return false
+    }
+
     private var lastTrafficFingerprint = ""
     private var lastTrafficVerdict: TrafficCheck.Verdict? = null
 
@@ -2108,10 +2146,14 @@ class UberAccessibilityService : AccessibilityService() {
             val drop = parsed.dropoffAddress?.let { a -> runCatching { evaluator.pointOf(a, config) }.getOrNull() } ?: return@withTimeoutOrNull null
             // Roda a parte: se a internet travar, o prazo vence e o aceite segue sem esperar a conexao
             val call = serviceScope.async(Dispatchers.IO) {
-                TrafficRouteClient.minutesWithTraffic(config.trafficApiKey.trim(), me, pick, drop, TRAFFIC_BUDGET_MS.toInt())
+                if (config.trafficApiKey.isNotBlank()) {
+                    TrafficRouteClient.minutesWithTraffic(config.trafficApiKey.trim(), me, pick, drop, TRAFFIC_BUDGET_MS.toInt())?.minutes
+                } else {
+                    com.ruan.uberareafilter.account.AccountGate.trafficMinutes(applicationContext, me, pick, drop, TRAFFIC_BUDGET_MS.toInt())
+                }
             }
-            val res = call.await() ?: return@withTimeoutOrNull null
-            TrafficCheck.judge(parsed, res.minutes, config)
+            val minutes = call.await() ?: return@withTimeoutOrNull null
+            TrafficCheck.judge(parsed, minutes, config)
         }
         val ms = System.currentTimeMillis() - startedAt
         lastTrafficFingerprint = parsed.fingerprint
