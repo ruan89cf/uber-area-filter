@@ -1935,23 +1935,22 @@ class UberAccessibilityService : AccessibilityService() {
                         (chainWaitNote?.let { "$it\n" } ?: "") + checklist
                     else -> checklist
                 }.let { base -> (negotiationLines + base).joinToString("\n") }
-                maybeShowBanner(
-                    RideCardModel(
-                        decision = decided.decision,
-                        appSource = parsed.appSource,
-                        title = titleText,
-                        statusLabel = statusText,
-                        priceText = priceFmt.ifEmpty { null },
-                        hourlyText = hrFmt.ifEmpty { null },
-                        secondaryMetrics = secondaryList,
-                        fuelText = fuelEstimate?.costText,
-                        profitText = profitLabel,
-                        profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
-                        checklist = finalChecklist,
-                        zoneColorHex = zoneColorHex,
-                        autoHideMs = bannerHideMs
-                    )
+                val insideCard = RideCardModel(
+                    decision = decided.decision,
+                    appSource = parsed.appSource,
+                    title = titleText,
+                    statusLabel = statusText,
+                    priceText = priceFmt.ifEmpty { null },
+                    hourlyText = hrFmt.ifEmpty { null },
+                    secondaryMetrics = secondaryList,
+                    fuelText = fuelEstimate?.costText,
+                    profitText = profitLabel,
+                    profitPositive = (fuelEstimate?.netProfit ?: 1.0) > 0.0,
+                    checklist = finalChecklist,
+                    zoneColorHex = zoneColorHex,
+                    autoHideMs = bannerHideMs
                 )
+                maybeShowBanner(insideCard)
                 scheduleShotWithCard(statusText)
 
                 val lastAcceptAt = lastActionAtByApp[parsed.appSource] ?: 0L
@@ -1962,7 +1961,13 @@ class UberAccessibilityService : AccessibilityService() {
                     lastActionAt = now
                     lastActionAtByApp[parsed.appSource] = now
                     // Ultimo criterio: o transito de agora. Sem resposta = segue a estimativa da 99.
+                    val trafficTried = TrafficCheck.shouldCheck(parsed, ruleConfig)
                     val traffic = checkTrafficBeforeAccept(parsed, ruleConfig, driverFix)
+                    if (trafficTried && (traffic == null || traffic.passes) && overlayManager.isBannerVisible()) {
+                        // Mostra no card o resultado da consulta (ok ou sem resposta) antes do aceite
+                        val line = traffic?.let { "🚦 ${it.okSummary()}" } ?: "🚦 Trânsito sem resposta: segui a 99"
+                        overlayManager.updateRideCardContent(insideCard.copy(checklist = "$line\n${insideCard.checklist}"))
+                    }
                     if (traffic != null && !traffic.passes) {
                         val status = if (config.autoRejectEnabled) "RECUSANDO" else "RECUSA OFF"
                         maybeShowBanner(

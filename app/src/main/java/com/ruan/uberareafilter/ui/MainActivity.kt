@@ -1860,7 +1860,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showPreview(decision: com.ruan.uberareafilter.engine.Decision) {
+    private fun showPreview(decision: com.ruan.uberareafilter.engine.Decision, trafficHeavy: Boolean = false) {
         if (!Settings.canDrawOverlays(this)) {
             // So a previa usa "Sobrepor tela"; os cards em cima da 99/Uber vem da Acessibilidade
             Toast.makeText(this, "Para ver a prévia aqui no painel, permita \"Sobrepor tela\" e volte.", Toast.LENGTH_LONG).show()
@@ -1872,12 +1872,17 @@ class MainActivity : AppCompatActivity() {
         val est = FuelCalculator.estimate(6.7, 18.90, 42.0, cfg)
         val profitLine = est?.let { listOfNotNull(it.profitText, it.netHourlyText).joinToString(" · ") }
 
-        val (title, status, app, checklist) = when (decision) {
+        val (title, status, app, checklist) = if (trafficHeavy) listOf(
+            "Trânsito pesado agora",
+            "RECUSANDO",
+            "99",
+            "✘ Trânsito agora: 25 min (a 99 dizia 11) → R$ 16/h\n✔ Nota 4,92  •  ✔ R$1,80/km  •  ✔ Emb 1,8km\n✔ Embarque: Rua Felizardo Fortes\n✔ Destino: Av. Brasil, Bonsucesso"
+        ) else when (decision) {
             com.ruan.uberareafilter.engine.Decision.INSIDE_AREA -> listOf(
                 "Dentro da área",
                 "ACEITANDO",
                 "UBER",
-                "✔ Nota 4,95  •  ✔ R$42/h  •  ✔ Emb 1,2km\n✔ Embarque: Rua Pirangi\n✔ Destino: Av. Lobo Júnior"
+                "🚦 Trânsito ok: 12 min (a 99 dizia 11)\n✔ Nota 4,95  •  ✔ R$42/h  •  ✔ Emb 1,2km\n✔ Embarque: Rua Pirangi\n✔ Destino: Av. Lobo Júnior"
             )
             com.ruan.uberareafilter.engine.Decision.OUTSIDE_AREA -> listOf(
                 "Fora dos critérios",
@@ -1913,7 +1918,7 @@ class MainActivity : AppCompatActivity() {
                 title = title,
                 statusLabel = status,
                 priceText = "R$ 18,90",
-                hourlyText = "R$ 42/h",
+                hourlyText = if (trafficHeavy) "R$ 16/h" else "R$ 42/h",
                 secondaryMetrics = listOf("R$ 2,82/km", "6,7 km", "★ 4,95"),
                 fuelText = est?.costText,
                 profitText = profitLine,
@@ -1937,6 +1942,8 @@ class MainActivity : AppCompatActivity() {
                 showPreview(d)
                 kotlinx.coroutines.delay(2600L)
             }
+            // Corrida que passou em tudo, mas o transito de agora derrubou o R$/h
+            showPreview(com.ruan.uberareafilter.engine.Decision.OUTSIDE_AREA, trafficHeavy = true)
         }
     }
 

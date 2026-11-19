@@ -42,6 +42,12 @@ object TrafficCheck {
         val offerNow: ParsedRideOffer
     ) {
         private val br = Locale("pt", "BR")
+        /** "Trânsito ok: 12 min (a 99 dizia 11)" */
+        fun okSummary(): String = buildString {
+            append(String.format(br, "Trânsito ok: %.0f min", trafficMinutes))
+            estimatedMinutes?.let { append(String.format(br, " (a 99 dizia %.0f)", it)) }
+        }
+
         fun summary(): String = buildString {
             append(String.format(br, "Trânsito agora: %.0f min", trafficMinutes))
             estimatedMinutes?.let { append(String.format(br, " (a 99 dizia %.0f)", it)) }

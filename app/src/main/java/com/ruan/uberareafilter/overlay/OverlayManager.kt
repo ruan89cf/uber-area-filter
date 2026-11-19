@@ -422,7 +422,8 @@ class OverlayManager(private val context: Context) {
             CardLevel.NORMAL -> {
                 val problems = chips.filter { it.mark != Mark.OK }
                 val okCount = chips.count { it.mark == Mark.OK }
-                if (okCount > 0) problems + CheckItem(Mark.OK, "$okCount ok") else problems
+                // "3/5 ok": de quantos criterios a corrida passou (o numero fica vermelho quando falta algum)
+                if (okCount > 0) problems + CheckItem(Mark.OK, "$okCount/${chips.size} ok") else problems
             }
         }
         cardChecks?.apply {
@@ -652,7 +653,7 @@ class OverlayManager(private val context: Context) {
             "✘" to Mark.BAD, "❌" to Mark.BAD,
             "⚠️" to Mark.WARN, "⚠" to Mark.WARN, "🟡" to Mark.WARN,
             "🟣" to Mark.ZONE,
-            "📍" to Mark.INFO, "▸" to Mark.INFO,
+            "📍" to Mark.INFO, "▸" to Mark.INFO, "🚦" to Mark.INFO,
             "🔒" to Mark.LOCK
         )
         for ((p, m) in prefixes) {
@@ -676,6 +677,8 @@ class OverlayManager(private val context: Context) {
      * Itens com simbolo colorido; "Embarque:" / "Destino:" ficam discretos e o endereco em destaque.
      * Itens reprovados ganham texto levemente avermelhado.
      */
+    private val okRatioRegex = Regex("""(\d+)/(\d+) ok""")
+
     private fun buildChecksSpannable(items: List<CheckItem>, separator: String, pal: CardPalette.Colors): CharSequence {
         val sb = SpannableStringBuilder()
         items.forEachIndexed { idx, item ->
@@ -690,6 +693,19 @@ class OverlayManager(private val context: Context) {
             }
             val body = item.text
             val textColor = if (item.mark == Mark.BAD) pal.badText else pal.textPrimary
+            val ratio = if (item.mark == Mark.OK) okRatioRegex.matchEntire(body) else null
+            if (ratio != null) {
+                val passed = ratio.groupValues[1].toInt()
+                val total = ratio.groupValues[2].toInt()
+                val s = sb.length
+                sb.append(ratio.groupValues[1])
+                sb.setSpan(ForegroundColorSpan(if (passed < total) pal.bad else pal.ok), s, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(StyleSpan(Typeface.BOLD), s, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                val s2 = sb.length
+                sb.append("/$total ok")
+                sb.setSpan(ForegroundColorSpan(pal.textPrimary), s2, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                return@forEachIndexed
+            }
             val colon = body.indexOf(':')
             if (colon in 1..18) {
                 val s = sb.length
