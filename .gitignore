@@ -31,3 +31,6 @@ logs_celular/
 
 # Chave do transito (AWS Amazon Location) para testes: nunca versionar
 traffic.properties
+
+# Segredos do servidor (chaves de assinatura, senha do admin): nunca versionar
+server/secrets/

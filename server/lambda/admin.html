@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filtro Inteligente · Admin</title>
+<style>
+  :root { --bg:#0f172a; --card:#111c33; --line:#22304f; --text:#e2e8f0; --muted:#94a3b8; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b; --acc:#38bdf8; }
+  * { box-sizing:border-box } body { margin:0; font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text) }
+  header { padding:14px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+  header h1 { font-size:17px; margin:0 12px 0 0 } input, select, button { font:inherit; border-radius:8px; border:1px solid var(--line); background:#0b1428; color:var(--text); padding:7px 10px }
+  button { background:#1d4ed8; border-color:#1d4ed8; cursor:pointer } button.ghost { background:transparent } button.red { background:#b91c1c; border-color:#b91c1c }
+  nav { display:flex; gap:6px; padding:10px 16px; flex-wrap:wrap } nav button { background:transparent } nav button.on { background:#1e293b; border-color:var(--acc) }
+  main { padding:0 16px 40px } .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:10px 0 }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px } .big { font-size:26px; font-weight:700 }
+  table { width:100%; border-collapse:collapse; margin-top:10px } th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top } th { color:var(--muted); font-weight:600 }
+  .pill { padding:2px 8px; border-radius:99px; font-size:12px; font-weight:600 } .active { background:#14532d; color:#86efac } .trial { background:#1e3a8a; color:#bfdbfe }
+  .expired { background:#3f3f46; color:#e4e4e7 } .blocked { background:#7f1d1d; color:#fecaca } .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0 }
+  .muted { color:var(--muted) } .actions button { padding:4px 8px; font-size:12px; margin:2px } #msg { min-height:20px; color:var(--warn) } .wrap { overflow-x:auto }
+</style>
+</head>
+<body>
+<header>
+  <h1>Filtro Inteligente · Administração</h1>
+  <input id="token" type="password" placeholder="Senha de administrador" size="30">
+  <button onclick="saveToken()">Entrar</button>
+  <span id="msg"></span>
+</header>
+<nav>
+  <button data-tab="resumo" class="on">Resumo</button><button data-tab="usuarios">Usuários</button>
+  <button data-tab="celulares">Celulares</button><button data-tab="cupons">Cupons</button><button data-tab="atualizacao">Atualização</button>
+</nav>
+<main>
+  <section id="resumo"><div class="cards" id="totals"></div><p class="muted">Ativos = assinatura, cupom ou vitalício. Teste = 7 dias grátis.</p></section>
+  <section id="usuarios" hidden><div class="row"><input id="q" placeholder="Buscar e-mail" oninput="renderUsers()"></div><div class="wrap"><table id="users"></table></div></section>
+  <section id="celulares" hidden><div class="wrap"><table id="devices"></table></div></section>
+  <section id="cupons" hidden>
+    <div class="card">
+      <b>Novo cupom</b>
+      <div class="row">
+        <input id="cCode" placeholder="Código (vazio = aleatório)">
+        <select id="cType" onchange="cDays.disabled=this.value==='lifetime'"><option value="days">Dias</option><option value="lifetime">Vitalício</option></select>
+        <input id="cDays" type="number" placeholder="Dias" value="30" style="width:90px">
+        <input id="cMax" type="number" placeholder="Usos (0 = sem limite)" style="width:170px">
+        <input id="cNote" placeholder="Anotação (ex.: irmão)">
+        <button onclick="createCoupon()">Criar</button>
+      </div>
+    </div>
+    <div class="wrap"><table id="coupons"></table></div>
+  </section>
+  <section id="atualizacao" hidden>
+    <div class="card">
+      <p class="muted">Versão = número da versão do app (versionCode). Abaixo da <b>mínima</b> o app trava e manda atualizar. Abaixo da <b>mais nova</b> só avisa.</p>
+      <div class="row"><label>Mínima obrigatória <input id="uMin" type="number" style="width:110px"></label>
+      <label>Mais nova <input id="uLatest" type="number" style="width:110px"></label></div>
+      <div class="row"><input id="uUrl" placeholder="Link para baixar (Play Store ou site)" size="60"></div>
+      <div class="row"><input id="uMsg" placeholder="Mensagem para o usuário" size="60"></div>
+      <button onclick="saveConfig()">Salvar</button>
+    </div>
+  </section>
+</main>
+<script>
+let data = null;
+const $ = (id) => document.getElementById(id);
+const fmt = (t) => t ? new Date(t).toLocaleString("pt-BR") : "—";
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const label = { active:"Ativo", trial:"Teste", expired:"Vencido", blocked:"Bloqueado", none:"—" };
+function token() { try { return localStorage.getItem("adminToken") || ""; } catch { return $("token").value; } }
+function saveToken() { try { localStorage.setItem("adminToken", $("token").value.trim()); } catch {} load(); }
+async function api(path, body) {
+  const r = await fetch("/admin/api/" + path, { method:"POST", headers:{ "Content-Type":"application/json", "X-Admin-Token": token() || $("token").value.trim() }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({ ok:false, message:"Resposta inválida" }));
+  if (!j.ok) { $("msg").textContent = j.message || "Erro"; throw new Error(j.message); }
+  $("msg").textContent = ""; return j;
+}
+async function load() { data = await api("overview"); render(); }
+function render() {
+  const t = data.totals;
+  $("totals").innerHTML = [["Usuários", t.users], ["Ativos", t.active], ["Em teste", t.trial], ["Vencidos", t.expired], ["Bloqueados", t.blocked]]
+    .map(([k, v]) => `<div class="card"><div class="muted">${k}</div><div class="big">${v}</div></div>`).join("");
+  renderUsers(); renderDevices(); renderCoupons();
+  const c = data.appConfig || {}; $("uMin").value = c.minVersionCode || ""; $("uLatest").value = c.latestVersionCode || ""; $("uUrl").value = c.updateUrl || ""; $("uMsg").value = c.message || "";
+}
+function renderUsers() {
+  const q = ($("q").value || "").toLowerCase();
+  const rows = data.users.filter((u) => !q || (u.email || "").includes(q));
+  $("users").innerHTML = `<tr><th>E-mail</th><th>Situação</th><th>Até</th><th>Celular</th><th>Último acesso</th><th>Versão</th><th>Ações</th></tr>` + rows.map((u) => `
+    <tr><td>${esc(u.email)}<div class="muted">${esc(u.name)}</div></td>
+    <td><span class="pill ${u.status}">${label[u.status] || u.status}</span><div class="muted">${esc(u.plan || "")}</div></td>
+    <td>${u.status === "active" && !u.until ? "vitalício" : fmt(u.until)}</td><td class="muted">${esc((u.activeDevice || "").slice(0, 10))}</td>
+    <td>${fmt(u.lastSeenAt)}</td><td>${u.lastAppVersion || ""}</td>
+    <td class="actions"><button onclick="act('${u.sub}',{addDays:30})">+30 dias</button><button onclick="act('${u.sub}',{lifetime:${!u.lifetime}})">${u.lifetime ? "Tirar vitalício" : "Vitalício"}</button>
+    <button class="${u.blocked ? "" : "red"}" onclick="act('${u.sub}',{blocked:${!u.blocked},reason:prompt('Motivo (aparece para o usuário):','')||''})">${u.blocked ? "Desbloquear" : "Bloquear"}</button>
+    <button class="ghost" onclick="act('${u.sub}',{resetDevice:true})">Liberar troca de celular</button></td></tr>`).join("");
+}
+function renderDevices() {
+  $("devices").innerHTML = `<tr><th>Celular</th><th>Modelo</th><th>Usou teste</th><th>Último usuário</th><th>Visto</th><th>Ações</th></tr>` + data.devices.map((d) => `
+    <tr><td class="muted">${esc(d.did)}</td><td>${esc(d.model)}</td><td>${d.trialUsed ? "sim" : "não"}</td><td>${esc((data.users.find((u) => u.sub === d.lastUser) || {}).email || "")}</td><td>${fmt(d.lastSeen)}</td>
+    <td class="actions"><button class="${d.blocked ? "" : "red"}" onclick="dev('${esc(d.did)}',{blocked:${!d.blocked},reason:prompt('Motivo:','')||''})">${d.blocked ? "Desbloquear" : "Bloquear"}</button>
+    <button class="ghost" onclick="dev('${esc(d.did)}',{blocked:${!!d.blocked},resetTrial:true})">Zerar teste</button></td></tr>`).join("");
+}
+function renderCoupons() {
+  $("coupons").innerHTML = `<tr><th>Código</th><th>Tipo</th><th>Usos</th><th>Anotação</th><th>Criado</th><th></th></tr>` + data.coupons.map((c) => `
+    <tr><td><b>${esc(c.code)}</b></td><td>${c.type === "lifetime" ? "Vitalício" : c.days + " dias"}</td><td>${c.uses || 0}${c.maxUses ? " / " + c.maxUses : ""}</td><td>${esc(c.note)}</td><td>${fmt(c.createdAt)}</td>
+    <td><button class="${c.active === false ? "" : "red"}" onclick="toggleCoupon('${esc(c.code)}',${c.active === false})">${c.active === false ? "Reativar" : "Desativar"}</button></td></tr>`).join("");
+}
+async function act(sub, body) { await api("user", { sub, ...body }); load(); }
+async function dev(did, body) { await api("device", { did, ...body }); load(); }
+async function createCoupon() {
+  const j = await api("coupon", { code: $("cCode").value, type: $("cType").value, days: Number($("cDays").value), maxUses: Number($("cMax").value), note: $("cNote").value });
+  alert("Cupom criado: " + j.coupon.code); $("cCode").value = ""; load();
+}
+async function toggleCoupon(code, active) { await api("coupon", { code, update: true, active }); load(); }
+async function saveConfig() {
+  await api("app-config", { minVersionCode: Number($("uMin").value), latestVersionCode: Number($("uLatest").value), updateUrl: $("uUrl").value, message: $("uMsg").value });
+  alert("Atualização salva"); load();
+}
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll("main section").forEach((s) => s.hidden = s.id !== b.dataset.tab);
+});
+if (token()) { $("token").value = token(); load().catch(() => {}); }
+</script>
+</body>
+</html>
