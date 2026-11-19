@@ -28,3 +28,6 @@ _backup_antes_instalacao/
 
 # Registros baixados do celular (tem enderecos das corridas)
 logs_celular/
+
+# Chave do transito (AWS Amazon Location) para testes: nunca versionar
+traffic.properties

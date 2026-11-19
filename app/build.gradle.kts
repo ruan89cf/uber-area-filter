@@ -15,6 +15,11 @@ android {
         targetSdk = 34
         versionCode = 21
         versionName = "2.7"
+
+        // Chave padrao do transito para testes (traffic.properties na raiz, fora do git)
+        val trafficProps = Properties()
+        rootProject.file("traffic.properties").takeIf { it.exists() }?.inputStream()?.use { trafficProps.load(it) }
+        buildConfigField("String", "TRAFFIC_DEFAULT_KEY", "\"${trafficProps.getProperty("awsRoutesKey", "")}\"")
     }
 
     signingConfigs {
@@ -59,6 +64,7 @@ android {
     buildFeatures {
         viewBinding = true
         aidl = true
+        buildConfig = true
     }
 
     testOptions {
